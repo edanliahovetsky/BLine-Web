@@ -536,3 +536,26 @@
   color: var(--bline-text-secondary);
   font-size: 0.8rem;
 }
+
+.robot-export-dialog .project-dialog__body p {
+  margin: 0;
+  color: var(--bline-text-secondary);
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+.robot-export-dialog code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--bline-text-primary);
+  background: var(--bline-surface-inset);
+  font-family: var(--bline-font-mono);
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+}
+.robot-export-dialog .project-dialog__body p.robot-export-dialog__error {
+  padding: 8px 10px;
+  border: 1px solid var(--bline-danger-border);
+  border-radius: 6px;
+  color: var(--bline-danger-text);
+  background: var(--bline-danger-surface);
+}

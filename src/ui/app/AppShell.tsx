@@ -89,6 +89,9 @@ import {
   type ConfigSectionId,
 } from "./ProjectConfigDialog";
 import { writeProjectFolder } from "./projectFolderExport";
+import { filesFromAutosZip } from "./projectFolderZip";
+import { exportToRobot, robotExportMode } from "./robotExport";
+import { RobotExportDialog } from "./RobotExportDialog";
 import { CommandPalette, ShortcutHelpDialog } from "./CommandPalette";
 import { useDialogFocusTrap } from "./useDialogFocusTrap";
 import { StartCenter } from "./StartCenter";
@@ -383,6 +386,8 @@ export function AppShell() {
   const pendingToolbarActionRef = useRef<PendingToolbarAction>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
+  const zipInputRef = useRef<HTMLInputElement | null>(null);
+  const [showRobotExport, setShowRobotExport] = useState(false);
   const practiceFolderImportRef =
     useRef<ReturnType<typeof capturePracticeTransfer>>(null);
   const toolbarRef = useRef<HTMLElement | null>(null);
@@ -646,6 +651,10 @@ export function AppShell() {
 
   const attachFileInput = useCallback((element: HTMLInputElement | null) => {
     fileInputRef.current = element;
+  }, []);
+
+  const attachZipInput = useCallback((element: HTMLInputElement | null) => {
+    zipInputRef.current = element;
   }, []);
 
   const attachFolderInput = useCallback((element: HTMLInputElement | null) => {
@@ -1226,7 +1235,11 @@ export function AppShell() {
   }, [refreshWorkspaceSummaries]);
 
   useEffect(() => {
-    const inputs = [fileInputRef.current, folderInputRef.current];
+    const inputs = [
+      fileInputRef.current,
+      folderInputRef.current,
+      zipInputRef.current,
+    ];
     const cancelImport = () => {
       practiceFolderImportRef.current = null;
       endToolbarAction("import");
@@ -1414,6 +1427,35 @@ export function AppShell() {
     }
   }, [beginToolbarAction, endToolbarAction]);
 
+  const handleExportToRobot = useCallback(
+    async ({ chooseFolder }: { chooseFolder: boolean }) => {
+      if (!beginToolbarAction("export")) {
+        return null;
+      }
+
+      const practice = capturePracticeTransfer();
+      try {
+        const state = projectStore.getState();
+        const projectFolder =
+          practice && state.project
+            ? serializeBLineProjectFolder(state.project)
+            : await state.exportProjectFolder();
+        if (!projectFolder) return null;
+        const result = await exportToRobot(projectFolder, { chooseFolder });
+        if (practice && isCurrentPracticeTransfer(practice)) {
+          tourStore.getState().recordAction("exportFolder");
+        }
+        return result;
+      } catch (caughtError) {
+        if (isAbortError(caughtError)) return null;
+        throw caughtError;
+      } finally {
+        endToolbarAction("export");
+      }
+    },
+    [beginToolbarAction, endToolbarAction],
+  );
+
   const handleExportPath = useCallback(async () => {
     if (!beginToolbarAction("export")) {
       return;
@@ -1491,6 +1533,21 @@ export function AppShell() {
 
     // A folder choice belongs to the lesson attempt that opened its picker,
     // even if the learner exits or restarts before selecting the files.
+    practiceFolderImportRef.current = capturePracticeTransfer();
+    input.click();
+  }, [beginToolbarAction, endToolbarAction]);
+
+  const queueZipImport = useCallback(() => {
+    if (!beginToolbarAction("import")) {
+      return;
+    }
+
+    const input = zipInputRef.current;
+    if (!input) {
+      endToolbarAction("import");
+      return;
+    }
+
     practiceFolderImportRef.current = capturePracticeTransfer();
     input.click();
   }, [beginToolbarAction, endToolbarAction]);
@@ -1671,13 +1728,28 @@ export function AppShell() {
     ],
   );
 
-  const handleImportProjectFolder = useCallback(
-    async (event: ChangeEvent<HTMLInputElement>) => {
-      const files = Array.from(event.currentTarget.files ?? []);
-      event.currentTarget.value = "";
-
+  /** Imports an autos folder's files, whether picked as a folder or a zip. */
+  const importAutosFiles = useCallback(
+    async (readFiles: () => Promise<File[]>) => {
       const practice = practiceFolderImportRef.current;
       practiceFolderImportRef.current = null;
+      let files: File[];
+      try {
+        files = await readFiles();
+      } catch (caughtError) {
+        endToolbarAction("import");
+        const message =
+          caughtError instanceof Error
+            ? caughtError.message
+            : String(caughtError);
+        if (practice) {
+          if (isCurrentPracticeTransfer(practice))
+            tourStore.getState().reportTransferError(message);
+        } else {
+          setImportError(message);
+        }
+        return;
+      }
       if (
         files.length === 0 ||
         (practice && !isCurrentPracticeTransfer(practice)) ||
@@ -1718,6 +1790,25 @@ export function AppShell() {
       requestImportDecision,
       setFieldBackgrounds,
     ],
+  );
+
+  const handleImportProjectFolder = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const selected = Array.from(event.currentTarget.files ?? []);
+      event.currentTarget.value = "";
+      await importAutosFiles(() => Promise.resolve(selected));
+    },
+    [importAutosFiles],
+  );
+
+  const handleImportAutosZip = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const zip = event.currentTarget.files?.[0] ?? null;
+      event.currentTarget.value = "";
+      // An autos.zip reads exactly like its unzipped folder.
+      await importAutosFiles(async () => (zip ? filesFromAutosZip(zip) : []));
+    },
+    [importAutosFiles],
   );
 
   const handleWalkthroughConfig = useCallback(
@@ -2072,6 +2163,18 @@ export function AppShell() {
     disabled: !projectAvailable || !projectIoAvailable || toolbarBusy,
     run: () => void handleCreateNewPath(),
   };
+  const exportToRobotCommand: EditorCommand = {
+    id: "project.export-to-robot",
+    label: "Export to robot…",
+    category: "Project",
+    keywords: ["deploy", "autos", "zip", "download", "save"],
+    disabled:
+      !projectAvailable ||
+      !projectIoAvailable ||
+      supportsProjectFolders ||
+      toolbarBusy,
+    run: () => setShowRobotExport(true),
+  };
   const settingsCommand: EditorCommand = {
     id: "project.settings",
     label: "Open project settings",
@@ -2368,6 +2471,7 @@ export function AppShell() {
   const commands: EditorCommand[] = [
     navigatorCommand,
     newPathCommand,
+    exportToRobotCommand,
     settingsCommand,
     saveCommand,
     undoCommand,
@@ -2594,8 +2698,10 @@ export function AppShell() {
         imports={{
           setFileInput: attachFileInput,
           setFolderInput: attachFolderInput,
+          setZipInput: attachZipInput,
           onImportFile: handleImportProject,
           onImportFolder: handleImportProjectFolder,
+          onImportZip: handleImportAutosZip,
         }}
         actions={{
           home: handleHome,
@@ -2605,7 +2711,9 @@ export function AppShell() {
           openProjectPanel: handleOpenProjectPanel,
           showDeleteProjects: handleShowDeleteProjects,
           importFolder: queueFolderImport,
+          importZip: queueZipImport,
           importFile: queueFileImport,
+          exportToRobot: () => setShowRobotExport(true),
           exportProjectFolder: handleExportProjectFolder,
           exportProjectArchive: handleExportProjectArchive,
           exportConfig: handleExportConfig,
@@ -2649,6 +2757,7 @@ export function AppShell() {
             onCreateProject={handleNewProject}
             onImportArchive={() => queueFileImport("archive")}
             onImportFolder={queueFolderImport}
+            onImportZip={queueZipImport}
             onOpenProject={() => {
               if (supportsProjectFolders) {
                 void handleOpenWorkspace();
@@ -2822,6 +2931,13 @@ export function AppShell() {
           }}
         />
       )}
+      {showRobotExport ? (
+        <RobotExportDialog
+          mode={robotExportMode()}
+          onExport={handleExportToRobot}
+          onClose={() => setShowRobotExport(false)}
+        />
+      ) : null}
       {importError !== null ? (
         <ImportErrorDialog
           message={importError}

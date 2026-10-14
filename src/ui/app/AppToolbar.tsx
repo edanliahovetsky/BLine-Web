@@ -76,8 +76,10 @@ interface ToolbarPanelState {
 interface ToolbarImportControls {
   setFileInput: RefCallback<HTMLInputElement>;
   setFolderInput: RefCallback<HTMLInputElement>;
+  setZipInput: RefCallback<HTMLInputElement>;
   onImportFile(event: ChangeEvent<HTMLInputElement>): void;
   onImportFolder(event: ChangeEvent<HTMLInputElement>): void;
+  onImportZip(event: ChangeEvent<HTMLInputElement>): void;
 }
 
 interface ToolbarActions {
@@ -88,7 +90,9 @@ interface ToolbarActions {
   openProjectPanel(): void;
   showDeleteProjects(): void;
   importFolder(): void;
+  importZip(): void;
   importFile(kind: "archive" | "config" | "path"): void;
+  exportToRobot(): void;
   exportProjectFolder(): void | Promise<void>;
   exportProjectArchive(): void | Promise<void>;
   exportConfig(): void | Promise<void>;
@@ -110,7 +114,14 @@ export function AppToolbar({
   commands,
   menu,
   panels,
-  imports: { setFileInput, setFolderInput, onImportFile, onImportFolder },
+  imports: {
+    setFileInput,
+    setFolderInput,
+    setZipInput,
+    onImportFile,
+    onImportFolder,
+    onImportZip,
+  },
   actions,
 }: {
   toolbarRef: RefObject<HTMLElement | null>;
@@ -184,6 +195,17 @@ export function AppToolbar({
             disabled={commands.newPath.disabled}
             onAction={() => executeCommand(commands.newPath)}
           />
+          {!supportsProjectFolders ? (
+            <MenuAction
+              label="Export to Robot..."
+              dataTour="export-to-robot"
+              disabled={!project || !projectIoAvailable || toolbarBusy}
+              onAction={() => {
+                menu.setOpen(null);
+                actions.exportToRobot();
+              }}
+            />
+          ) : null}
           <div className="top-menu__separator" role="separator" />
           {supportsProjectFolders ? (
             <MenuSubmenu label="Folder" testId="top-menu-project-folder">
@@ -227,6 +249,11 @@ export function AppToolbar({
                   label="Import Autos Folder..."
                   disabled={!projectIoAvailable || toolbarBusy}
                   onAction={actions.importFolder}
+                />
+                <MenuAction
+                  label="Import Autos ZIP..."
+                  disabled={!projectIoAvailable || toolbarBusy}
+                  onAction={actions.importZip}
                 />
                 <MenuAction
                   label="Export Autos Folder..."
@@ -443,6 +470,15 @@ export function AppToolbar({
           accept="application/json,.json"
           multiple
           onChange={onImportFolder}
+        />
+        <input
+          ref={setZipInput}
+          className="file-import-input"
+          aria-label="Import autos ZIP"
+          data-tour="lesson-import-zip"
+          type="file"
+          accept=".zip,application/zip"
+          onChange={onImportZip}
         />
       </nav>
     </header>

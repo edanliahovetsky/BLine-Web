@@ -50,10 +50,7 @@ export async function writeProjectFolder(
       selectedDirectory,
       projectFolder.folderName,
     );
-
-    for (const file of projectFolder.files) {
-      await writeFolderFile(autosDirectory, file.relativePath, file.blob);
-    }
+    await writeProjectFolderFiles(autosDirectory, projectFolder);
     return;
   }
 
@@ -140,24 +137,66 @@ export async function resolveAutosExportDirectory(
   selectedDirectory: ProjectExportDirectoryHandle,
   autosFolderName: string,
 ): Promise<ProjectExportDirectoryHandle> {
+  return (await resolveAutosExportTarget(selectedDirectory, autosFolderName))
+    .directory;
+}
+
+/** Where an export lands inside the chosen folder, for telling the user. */
+export interface AutosExportTarget {
+  directory: ProjectExportDirectoryHandle;
+  /** Folder names from the chosen folder down to the autos folder. */
+  pathSegments: string[];
+  /** Whether the chosen folder is a robot project with src/main/deploy. */
+  robotProject: boolean;
+}
+
+export async function resolveAutosExportTarget(
+  selectedDirectory: ProjectExportDirectoryHandle,
+  autosFolderName: string,
+): Promise<AutosExportTarget> {
   if (sameFolderName(selectedDirectory.name, autosFolderName)) {
-    return selectedDirectory;
+    return {
+      directory: selectedDirectory,
+      pathSegments: [selectedDirectory.name],
+      robotProject: false,
+    };
   }
 
-  const deployDirectory = await getNestedDirectoryIfPresent(selectedDirectory, [
-    "src",
-    "main",
-    "deploy",
-  ]);
+  const deploySegments = ["src", "main", "deploy"];
+  const deployDirectory = await getNestedDirectoryIfPresent(
+    selectedDirectory,
+    deploySegments,
+  );
   if (deployDirectory) {
-    return deployDirectory.getDirectoryHandle(autosFolderName, {
-      create: true,
-    });
+    return {
+      directory: await deployDirectory.getDirectoryHandle(autosFolderName, {
+        create: true,
+      }),
+      pathSegments: [
+        selectedDirectory.name,
+        ...deploySegments,
+        autosFolderName,
+      ],
+      robotProject: true,
+    };
   }
 
-  return selectedDirectory.getDirectoryHandle(autosFolderName, {
-    create: true,
-  });
+  return {
+    directory: await selectedDirectory.getDirectoryHandle(autosFolderName, {
+      create: true,
+    }),
+    pathSegments: [selectedDirectory.name, autosFolderName],
+    robotProject: false,
+  };
+}
+
+export async function writeProjectFolderFiles(
+  directory: ProjectExportDirectoryHandle,
+  projectFolder: ProjectFolderExport,
+): Promise<void> {
+  for (const file of projectFolder.files) {
+    await writeFolderFile(directory, file.relativePath, file.blob);
+  }
 }
 
 async function getNestedDirectoryIfPresent(
@@ -333,7 +372,7 @@ function safePathSegments(path: string): string[] {
     .filter((segment) => segment && segment !== "." && segment !== "..");
 }
 
-function safeFileName(value: string): string {
+export function safeFileName(value: string): string {
   return (
     value
       .trim()
@@ -357,7 +396,7 @@ function createCrc32Table(): Uint32Array {
   return table;
 }
 
-function calculateCrc32(bytes: Uint8Array): number {
+export function calculateCrc32(bytes: Uint8Array): number {
   let crc = 0xffffffff;
   for (const byte of bytes) {
     crc = crc32Table[(crc ^ byte) & 0xff]! ^ (crc >>> 8);

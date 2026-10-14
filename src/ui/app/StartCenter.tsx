@@ -4,6 +4,7 @@ import {
   ArrowRight,
   ChevronDown,
   Download,
+  FileArchive,
   FolderOpen,
   Github,
   MonitorDown,
@@ -21,6 +22,7 @@ export function StartCenter({
   onCreateProject,
   onImportArchive,
   onImportFolder,
+  onImportZip,
   onOpenProject,
   onOpenRecent,
   onOpenSample,
@@ -35,6 +37,7 @@ export function StartCenter({
   onCreateProject(): void;
   onImportArchive(): void;
   onImportFolder(): void;
+  onImportZip(): void;
   onOpenProject(): void;
   onOpenRecent(id: string): void;
   onOpenSample(): void;
@@ -97,6 +100,7 @@ export function StartCenter({
             supportsProjectFolders={supportsProjectFolders}
             onImportArchive={onImportArchive}
             onImportFolder={onImportFolder}
+            onImportZip={onImportZip}
           />
         </div>
 
@@ -211,11 +215,13 @@ function StartCenterImports({
   supportsProjectFolders,
   onImportArchive,
   onImportFolder,
+  onImportZip,
 }: {
   disabled: boolean;
   supportsProjectFolders: boolean;
   onImportArchive(): void;
   onImportFolder(): void;
+  onImportZip(): void;
 }) {
   const disclosureRef = useRef<HTMLDetailsElement>(null);
   const triggerRef = useRef<HTMLElement>(null);
@@ -294,6 +300,20 @@ function StartCenterImports({
           >
             <FolderOpen aria-hidden="true" size={17} />
             <span>Autos folder</span>
+          </button>
+        ) : null}
+        {!supportsProjectFolders ? (
+          <button
+            type="button"
+            disabled={disabled}
+            aria-label="Import autos ZIP"
+            onClick={() => {
+              closeAndFocus();
+              onImportZip();
+            }}
+          >
+            <FileArchive aria-hidden="true" size={17} />
+            <span>autos.zip</span>
           </button>
         ) : null}
         <button
