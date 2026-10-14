@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import { EventKeyInput } from "../controls/EventKeyInput";
 import { EventKeyMenu } from "../controls/EventKeyMenu";
@@ -8,7 +8,6 @@ import "./ProtrusionEventKeys.css";
 interface KeyRow {
   id: string;
   value: string;
-  autoFocus?: boolean;
 }
 
 export function ProtrusionEventKeys({
@@ -60,6 +59,23 @@ export function ProtrusionEventKeys({
     input?.focus();
     input?.select();
   };
+  // A row added at the bottom of a long settings page would otherwise land
+  // out of sight; bring it into view and put the caret in it.
+  const revealRowId = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    const id = revealRowId.current;
+    if (!id) return;
+    revealRowId.current = null;
+    const row = listRef.current?.querySelector<HTMLElement>(
+      `[data-key-row="${id}"]`,
+    );
+    row?.scrollIntoView({ block: "nearest" });
+    row?.querySelector("input")?.focus({ preventScroll: true });
+  });
+  const addRow = (rows: KeyRow[], row: KeyRow) => {
+    revealRowId.current = row.id;
+    update(rows);
+  };
   return (
     <section
       className={`config-row protrusion-event-keys${disabled ? " is-disabled" : ""}`}
@@ -75,12 +91,10 @@ export function ProtrusionEventKeys({
           disabled={disabled}
           aria-label={`Add ${action.toLowerCase()} event key`}
           title={`Add ${action.toLowerCase()} event key`}
-          onClick={() =>
-            update([
-              ...draft.rows,
-              { id: crypto.randomUUID(), value: "", autoFocus: true },
-            ])
-          }
+          onClick={() => {
+            const row = { id: crypto.randomUUID(), value: "" };
+            addRow([...draft.rows, row], row);
+          }}
         >
           <Plus size={14} aria-hidden="true" />
         </button>
@@ -100,7 +114,6 @@ export function ProtrusionEventKeys({
                 keys={keysFor(row.value.trim())}
                 usage={usage}
                 disabled={disabled}
-                autoFocus={row.autoFocus}
                 placeholder="Lib Key"
                 onChange={(value) =>
                   update(
@@ -127,12 +140,9 @@ export function ProtrusionEventKeys({
                   while (copy && used.includes(copy))
                     copy = `${row.value}_copy${suffix++}`;
                   const rows = [...draft.rows];
-                  rows.splice(index + 1, 0, {
-                    id: crypto.randomUUID(),
-                    value: copy,
-                    autoFocus: true,
-                  });
-                  update(rows);
+                  const duplicate = { id: crypto.randomUUID(), value: copy };
+                  rows.splice(index + 1, 0, duplicate);
+                  addRow(rows, duplicate);
                 }}
                 onDelete={() =>
                   update(draft.rows.filter((item) => item.id !== row.id))

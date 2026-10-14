@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Check, CircleAlert, Plus, Search, X, Zap } from "lucide-react";
 import type { Project, ProjectConfig } from "../../core/model/project";
 import {
@@ -28,6 +28,28 @@ export function EventTriggerSettings({
     value: string;
   } | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const editRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  const revealKey = useRef<string | null>(null);
+  const editingOpen = editing !== null;
+  useLayoutEffect(() => {
+    if (editingOpen) editRef.current?.scrollIntoView({ block: "nearest" });
+  }, [editingOpen]);
+  // A newly registered key joins the end of the list; show it and move focus
+  // to its actions so the next step is one keypress away.
+  useLayoutEffect(() => {
+    const key = revealKey.current;
+    if (!key) return;
+    const row = [
+      ...(listRef.current?.querySelectorAll<HTMLElement>("[data-event-key]") ??
+        []),
+    ].find((item) => item.dataset.eventKey === key);
+    // A lesson applies the change a render later; wait for the row.
+    if (!row) return;
+    revealKey.current = null;
+    row.scrollIntoView({ block: "nearest" });
+    row.querySelector("button")?.focus({ preventScroll: true });
+  });
   const preview = useMemo(
     () => ({ ...applyEventKeyEdits(project, edits), config }),
     [project, config, edits],
@@ -52,7 +74,9 @@ export function EventTriggerSettings({
     if (!editing || !canCommit) return;
     const key = editedKey;
     if (editing.from !== null) replace(editing.from, key);
-    else
+    else {
+      setQuery("");
+      revealKey.current = key;
       onChange(
         {
           ...config,
@@ -60,6 +84,7 @@ export function EventTriggerSettings({
         },
         [...edits],
       );
+    }
     setEditing(null);
   };
   const startEdit = (from: string | null, value: string) => {
@@ -93,7 +118,7 @@ export function EventTriggerSettings({
         </button>
       </div>
       {editing && (
-        <div className="event-key-edit">
+        <div ref={editRef} className="event-key-edit">
           <label>
             {editing.from !== null && (
               <span>{`Rename all “${editing.from}” to`}</span>
@@ -159,9 +184,13 @@ export function EventTriggerSettings({
             )}
         </div>
       )}
-      <ul className="event-keys-list" aria-label="Registered event triggers">
+      <ul
+        ref={listRef}
+        className="event-keys-list"
+        aria-label="Registered event triggers"
+      >
         {visible.map((key) => (
-          <li key={key} className="event-key-row">
+          <li key={key} className="event-key-row" data-event-key={key}>
             <div
               className={`event-key-row__main${deleting === key ? " event-key-row__main--clearing" : ""}`}
             >

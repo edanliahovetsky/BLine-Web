@@ -207,8 +207,8 @@ export function ProjectConfigDialog({
   );
   const protrusionsEnabled = draft.gui.protrusions.enabled;
   const protrusionDefaultStateOptions = protrusionsEnabled
-    ? ["shown", "hidden"]
-    : [""];
+    ? protrusionStateOptions
+    : disabledProtrusionStateOptions;
 
   const saveDraft = () => {
     if (!walkthrough && isDirty && !saving) {
@@ -431,6 +431,31 @@ export function ProjectConfigDialog({
     </SettingsWalkthroughContext.Provider>
   );
 }
+
+interface SelectOption {
+  value: string;
+  label: string;
+}
+
+// Settings show people-facing names; the stored values stay unchanged.
+const handoffModeOptions: readonly SelectOption[] = [
+  { value: "radius", label: "Radius" },
+  { value: "progress", label: "Progress" },
+];
+const protrusionSideOptions: readonly SelectOption[] = [
+  { value: "none", label: "None" },
+  { value: "left", label: "Left" },
+  { value: "right", label: "Right" },
+  { value: "front", label: "Front" },
+  { value: "back", label: "Back" },
+];
+const protrusionStateOptions: readonly SelectOption[] = [
+  { value: "shown", label: "Shown" },
+  { value: "hidden", label: "Hidden" },
+];
+const disabledProtrusionStateOptions: readonly SelectOption[] = [
+  { value: "", label: "None" },
+];
 
 type KinematicKey = Exclude<
   keyof ProjectConfig["kinematic_constraints"],
@@ -713,7 +738,7 @@ function RobotSettingsSection({
   draft: ProjectConfig;
   /** The draft settings with the project's paths, for key suggestions. */
   eventKeyProject: Pick<Project, "config" | "paths">;
-  protrusionDefaultStateOptions: string[];
+  protrusionDefaultStateOptions: readonly SelectOption[];
   protrusionsEnabled: boolean;
   setDraft: Dispatch<SetStateAction<ProjectConfig>>;
 }) {
@@ -852,7 +877,7 @@ function RobotSettingsSection({
             label="Protrusion Side"
             value={draft.gui.protrusions.side}
             disabled={!protrusionsEnabled}
-            options={["none", "left", "right", "front", "back"]}
+            options={protrusionSideOptions}
             onChange={(value) =>
               updateProtrusions(setDraft, {
                 side: value as ProtrusionSide,
@@ -938,7 +963,7 @@ function PathDefaultsSettingsSection({
         <SelectRow
           label="Default Handoff Mode"
           value={draft.kinematic_constraints.default_handoff_mode ?? "radius"}
-          options={["radius", "progress"]}
+          options={handoffModeOptions}
           onChange={(value) =>
             setDraft((current) => ({
               ...current,
@@ -1179,7 +1204,7 @@ function SelectRow({
 }: {
   label: string;
   value: string;
-  options: string[];
+  options: readonly SelectOption[];
   disabled?: boolean;
   onChange(value: string): void;
 }) {
@@ -1191,10 +1216,7 @@ function SelectRow({
         ariaLabel={label}
         value={value}
         disabled={disabled}
-        options={options.map((option) => ({
-          label: option === "" ? "none" : option,
-          value: option,
-        }))}
+        options={options}
         onChange={onChange}
       />
     </label>

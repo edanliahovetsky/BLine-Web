@@ -213,8 +213,8 @@ for (const viewport of [
     await page.getByRole("switch", { name: "Enable Protrusions" }).check();
     await next(page, "Set up the extension");
     await number(page, "Protrusion Distance (m)", "0.3");
-    await selectDropdownOption(page, "Protrusion Side", "front");
-    await selectDropdownOption(page, "Default Protrusion State", "hidden");
+    await selectDropdownOption(page, "Protrusion Side", "Front");
+    await selectDropdownOption(page, "Default Protrusion State", "Hidden");
     await next(page, "Connect the event keys");
     await page
       .getByRole("button", { name: "Add show event key", exact: true })

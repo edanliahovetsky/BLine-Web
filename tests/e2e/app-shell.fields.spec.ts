@@ -64,8 +64,8 @@ test("edits project config with undo support", async ({ page }) => {
     dialog.getByTitle("Increase Protrusion Distance (m)"),
   ).toBeEnabled();
   await expect(dialog.getByLabel("Protrusion Side")).toBeEnabled();
-  await expect(page.getByLabel("Default Protrusion State")).toHaveText("shown");
-  await selectDropdownOption(page, "Protrusion Side", "front");
+  await expect(page.getByLabel("Default Protrusion State")).toHaveText("Shown");
+  await selectDropdownOption(page, "Protrusion Side", "Front");
   await page
     .getByRole("button", { name: "Add show event key", exact: true })
     .click();
