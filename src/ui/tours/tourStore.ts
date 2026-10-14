@@ -1,5 +1,5 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
-import type { PathElement, PathModel } from "../../core/model/path";
+import type { PathModel } from "../../core/model/path";
 import type {
   ProjectConfig,
   ProjectPath,
@@ -7,8 +7,7 @@ import type {
   LinkedTarget,
 } from "../../core/model/project";
 import { rememberCompletedTourIds } from "../../userData";
-
-export type TourPlacement = "above" | "below" | "left" | "right";
+import { readLessonResume, rememberLessonResume } from "./lessonResume";
 
 export interface TourMarker {
   id: string;
@@ -21,16 +20,27 @@ export interface TourMarker {
   rotationDegrees?: number;
 }
 
-export type TourExperiment = "handoff" | "speed" | "heading" | "events";
 export interface TourFeedback {
   complete: boolean;
   message: string;
+  /** Live results for a step's named sub-checks, in checklist order. */
+  items?: readonly TourCheckResult[];
+}
+export interface TourCheckResult {
+  label: string;
+  complete: boolean;
+  /** What to fix, shown under an unmet requirement. */
+  hint: string;
+}
+/** One named requirement of a step that asks for several things. */
+export interface TourSubCheck {
+  label: string;
+  check(): TourFeedback;
 }
 export type TourAction =
   | "play"
   | "finishRun"
   | "scrub"
-  | "reference"
   | "replay"
   | "inspectConfig"
   | "inspectProject"
@@ -46,11 +56,6 @@ export interface TourTransferError {
   stepIndex: number;
   message: string;
 }
-export interface TourReference {
-  path: PathModel;
-  config: ProjectConfig;
-}
-
 export interface TourStep {
   /** Optional scenario cues for a new exercise within this lesson. */
   markers?: readonly TourMarker[];
@@ -70,8 +75,13 @@ export interface TourStep {
    */
   target?: string;
   title: string;
+  /**
+   * At most about 35 words. Wrap event keys in backticks to render them as
+   * insertable key chips.
+   */
   body: string;
-  describe?(): string;
+  /** Background detail kept behind the card's "Why?" toggle. */
+  why?: string;
   /** Keep Settings open with edits applied to the isolated practice project. */
   settingsSection?:
     | "robot"
@@ -86,23 +96,21 @@ export interface TourStep {
   phase?: "Build" | "Observe" | "Experiment" | "Challenge" | "Review";
   /** Visible context is independent of the controls permitted for interaction. */
   visible?: readonly string[];
-  hints?: readonly string[];
-  hintTargets?: readonly string[];
-  demo?: TourExperiment;
-  experiment?: TourExperiment;
-  /** Preserve this step's entry state for a comparison after the learner edits. */
-  captureReference?: true;
-  handoff?: true;
   check?(): TourFeedback;
-  /** Conditions that must remain true even on an observation or review step. */
-  validate?(): TourFeedback;
-  /** Exact element counts only for guided exercises. Challenges may accept alternatives. */
-  elements?: Partial<Record<PathElement["type"], number>>;
-  /** Short action shown as a task when the step waits for editor input. */
+  /** Requirements shown as a live checklist; all must pass, along with `check`. */
+  checks?: readonly TourSubCheck[];
+  /**
+   * The card's headline: what the learner does now. Steps without a task are
+   * read-only and lead with their title instead.
+   */
   task?: string;
-  /** Keys worth showing as caps beneath the body. */
-  keys?: readonly string[];
-  placement?: TourPlacement;
+  /**
+   * `data-tour` ids that "Show me" pulses in turn. `lesson-segment` is the
+   * canvas segment named by `segment`.
+   */
+  showMe?: readonly string[];
+  /** Element indexes bounding the path segment `lesson-segment` outlines. */
+  segment?(path: PathModel): readonly [number, number] | null;
   /**
    * `data-tour` ids the user may interact with during this step. Everything
    * else is shielded so a stray click cannot derail the lesson. Steps without
@@ -114,10 +122,6 @@ export interface TourStep {
    * points at something that is collapsed or on another inspector tab.
    */
   prepare?: TourStepPreparation;
-  /**
-   * When present the step waits for real editor state, then unlocks Continue.
-   */
-  completeWhen?(): boolean;
   /**
    * Stop editor interaction after the required action completes. Use this for
    * one-shot actions such as placing exactly one path element.
@@ -156,7 +160,10 @@ export interface TourDefinition {
   title: string;
   summary: string;
   durationMinutes: number;
-  completionMessage: string;
+  /** Two or three short lines shown when the lesson is finished. */
+  recap: readonly string[];
+  /** Lib Keys registered in the practice project so lessons never ask for unknown keys. */
+  eventKeys?: readonly string[];
   /** Scenario cues drawn over the practice field for this lesson only. */
   markers?: readonly TourMarker[];
   /**
@@ -173,6 +180,14 @@ export interface TourDefinition {
   steps: readonly TourStep[];
 }
 
+/** Where a learner left a lesson, so reopening it can offer to resume. */
+export interface TourResumePoint {
+  tourId: string;
+  stepIndex: number;
+  furthestStepIndex: number;
+  actions: Partial<Record<TourAction, number>>;
+}
+
 export interface TourState {
   activeTourId: string | null;
   stepIndex: number;
@@ -180,10 +195,13 @@ export interface TourState {
   furthestStepIndex: number;
   completedStepIndexes: readonly number[];
   actions: Partial<Record<TourAction, number>>;
-  reference: TourReference | null;
   transferError: TourTransferError | null;
   completedTourIds: readonly string[];
-  start(tourId: string): void;
+  /** The lesson most recently left before its end. */
+  suspended: TourResumePoint | null;
+  /** The lesson just finished, shown as a recap until dismissed. */
+  finishedTourId: string | null;
+  start(tourId: string, resume?: TourResumePoint): void;
   goTo(stepIndex: number): void;
   next(stepCount: number): void;
   back(): void;
@@ -191,14 +209,17 @@ export interface TourState {
   restartAt(index: number): void;
   recordAction(action: TourAction): void;
   reportTransferError(message: string | null): void;
-  captureReference(reference: TourReference): void;
   hydrateCompleted(ids: readonly string[]): void;
   finish(): void;
+  /** Leave the lesson, keeping the step reached for a later resume. */
   exit(): void;
+  dismissRecap(): void;
+  forgetSuspended(): void;
 }
 
 export interface TourStoreOptions {
   completedTourIds?: readonly string[];
+  suspended?: TourResumePoint | null;
   onCompletedChange?(ids: readonly string[]): void;
 }
 
@@ -212,18 +233,23 @@ export function createTourStore(
     furthestStepIndex: 0,
     completedStepIndexes: [],
     actions: {},
-    reference: null,
     transferError: null,
     completedTourIds: [...new Set(options.completedTourIds ?? [])],
-    start(tourId) {
+    suspended: options.suspended ?? null,
+    finishedTourId: null,
+    start(tourId, resume) {
+      const resumed = resume?.tourId === tourId ? resume : null;
       set({
         activeTourId: tourId,
-        stepIndex: 0,
-        furthestStepIndex: 0,
-        completedStepIndexes: [],
-        actions: {},
-        reference: null,
+        stepIndex: resumed?.stepIndex ?? 0,
+        furthestStepIndex: resumed?.furthestStepIndex ?? 0,
+        completedStepIndexes: resumed
+          ? Array.from({ length: resumed.stepIndex }, (_, index) => index)
+          : [],
+        actions: { ...resumed?.actions },
         attemptId: get().attemptId + 1,
+        suspended: null,
+        finishedTourId: null,
       });
     },
     goTo(stepIndex) {
@@ -262,7 +288,7 @@ export function createTourStore(
           (candidate) => candidate < index,
         ),
         attemptId: get().attemptId + 1,
-        ...(index === 0 ? { reference: null, actions: {} } : {}),
+        ...(index === 0 ? { actions: {} } : {}),
       });
     },
     recordAction(action) {
@@ -282,11 +308,6 @@ export function createTourStore(
           message === null ? null : { attemptId, stepIndex, message },
       });
     },
-    captureReference(reference) {
-      if (!get().activeTourId) return;
-      set({ reference: structuredClone(reference) });
-      get().recordAction("reference");
-    },
     hydrateCompleted(ids) {
       set({ completedTourIds: [...new Set(ids)] });
     },
@@ -297,14 +318,40 @@ export function createTourStore(
         options.onCompletedChange?.(nextCompleted);
         set({ completedTourIds: nextCompleted });
       }
-      set({ activeTourId: null, stepIndex: 0, reference: null });
+      set({
+        activeTourId: null,
+        stepIndex: 0,
+        finishedTourId: activeTourId,
+        suspended:
+          get().suspended?.tourId === activeTourId ? null : get().suspended,
+      });
     },
     exit() {
-      set({ activeTourId: null, stepIndex: 0, reference: null });
+      const { activeTourId, stepIndex, furthestStepIndex, actions } = get();
+      set({
+        activeTourId: null,
+        stepIndex: 0,
+        suspended:
+          activeTourId && furthestStepIndex > 0
+            ? { tourId: activeTourId, stepIndex, furthestStepIndex, actions }
+            : get().suspended,
+      });
+    },
+    dismissRecap() {
+      set({ finishedTourId: null });
+    },
+    forgetSuspended() {
+      set({ suspended: null });
     },
   }));
 }
 
 export const tourStore = createTourStore({
   onCompletedChange: rememberCompletedTourIds,
+  suspended: readLessonResume()?.point ?? null,
+});
+// The session controller saves a resume point with its practice project; a
+// finished or discarded lesson forgets it here.
+tourStore.subscribe((state, previous) => {
+  if (previous.suspended && !state.suspended) rememberLessonResume(null);
 });

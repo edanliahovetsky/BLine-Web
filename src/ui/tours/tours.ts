@@ -26,12 +26,7 @@ import {
   near,
   practiceConfig,
 } from "./tourScenario";
-import {
-  checkPlan,
-  feedback,
-  pathEventKeys,
-  withEventKeyCaseHint,
-} from "./tourChecks";
+import { checkPlan, feedback, withEventKeyCaseHint } from "./tourChecks";
 import { settingsTours } from "./robotSettingsLesson";
 import { supplementalTours } from "./supplementalLessons";
 import {
@@ -112,6 +107,26 @@ const bend = (path: PathModel) =>
 const rotation = (path: PathModel) =>
   path.path_elements.findIndex(isRotationTarget);
 const event = (path: PathModel) => path.path_elements.findIndex(isEventTrigger);
+const lastAnchor = (path: PathModel) =>
+  path.path_elements.reduce(
+    (last, element, index) =>
+      isWaypoint(element) || isTranslationTarget(element) ? index : last,
+    -1,
+  );
+/** The segment from the translation target to End. */
+const secondSegment = (path: PathModel) => {
+  const from = bend(path);
+  const to = lastAnchor(path);
+  return from >= 0 && to > from ? ([from, to] as const) : null;
+};
+const secondSegmentEvents = (path: PathModel) => {
+  const segment = secondSegment(path);
+  return segment
+    ? path.path_elements
+        .slice(segment[0] + 1, segment[1])
+        .filter(isEventTrigger)
+    : [];
+};
 const properties = (
   selectElement: TourStepPreparation["selectElement"],
 ): TourStepPreparation => ({
@@ -183,7 +198,7 @@ export const gettingStartedTour: TourDefinition = {
   title: "Getting Started",
   summary: "Find the canvas, panels, menus, and Path Groups",
   durationMinutes: 3,
-  completionMessage: "You know where to find the editor controls.",
+  recap: ["You know where to find the editor controls."],
   practicePath: () => createManagementPaths()[0].path,
   practicePaths: createManagementPaths,
   practiceGroups: createManagementGroups,
@@ -313,8 +328,7 @@ export const fundamentalsTour: TourDefinition = {
   title: "BLine Fundamentals",
   summary: "Build a path with waypoints and translation targets",
   durationMinutes: 5,
-  completionMessage:
-    "You built a route and checked the robot’s bumper clearance.",
+  recap: ["You built a route and checked the robot’s bumper clearance."],
   practicePath: createFundamentalsDemoPath,
   practiceConfig,
   markers: fundamentalsZones,
@@ -437,8 +451,7 @@ export const pathTuningTour: TourDefinition = {
   title: "Path Tuning",
   summary: "See target handoffs, then tune radii and velocity limits",
   durationMinutes: 6,
-  completionMessage:
-    "You generated starting values and tried your own manual settings.",
+  recap: ["You generated starting values and tried your own manual settings."],
   practicePath: createHandoffLessonPath,
   practiceConfig,
   markers: fundamentalsMarkers,
@@ -623,7 +636,7 @@ export const rotationTargetsTour: TourDefinition = {
   title: "Rotation targets",
   summary: "Set headings and see how speed affects turning",
   durationMinutes: 4,
-  completionMessage: "You placed rotation targets and explored their timing.",
+  recap: ["You placed rotation targets and explored their timing."],
   practicePath: createRotationLessonPath,
   practiceConfig,
   steps: [
@@ -750,8 +763,9 @@ export const eventTriggersTour: TourDefinition = {
   id: "event-triggers",
   title: "Event triggers",
   summary: "Move an event and add another on a different segment",
+  eventKeys: ["startIntake", "stopIntake"],
   durationMinutes: 3,
-  completionMessage: "You added and moved events on two parts of a path.",
+  recap: ["You added and moved events on two parts of a path."],
   practicePath: createEventLessonPath,
   practiceConfig,
   steps: [
@@ -791,43 +805,60 @@ export const eventTriggersTour: TourDefinition = {
     },
     {
       title: "Add an event on the next segment",
-      body: "Choose Event and add another trigger between the translation target and End. Set Event Pos to 0.6 and Lib Key to stopIntake.",
+      task: "Add `stopIntake` at 0.6 on segment 2",
+      body: "Choose the Event tool, then click the segment between the translation target and End. Set Event Pos and Lib Key below the list.",
+      why: "Event Pos runs from 0 at the segment’s start to 1 at its end, so 0.6 fires a little past halfway. Robot code matches the Lib Key exactly, including capitals.",
       target: "tool-event",
       visible: ["path-canvas", "element-properties"],
       interact: [...elementExploration, "tool-event"],
       prepare: { ...properties(bend), simulation: "start" },
-      task: "Add stopIntake at 0.6 on the second segment",
-      check: outcome((path) => {
-        const bendIndex = bend(path);
-        const endIndex = path.path_elements.reduce(
-          (last, element, index) => (isWaypoint(element) ? index : last),
-          -1,
-        );
-        return withEventKeyCaseHint(
-          feedback(
-            bendIndex >= 0 &&
-              path.path_elements.some(
-                (element, index) =>
-                  isEventTrigger(element) &&
-                  index > 0 &&
-                  index < bendIndex &&
-                  element.lib_key.trim() === "startIntake",
-              ) &&
-              path.path_elements.some(
-                (element, index) =>
-                  isEventTrigger(element) &&
-                  index > bendIndex &&
-                  index < endIndex &&
-                  element.lib_key.trim() === "stopIntake" &&
-                  Math.abs(element.t_ratio - 0.6) < 0.015,
-              ),
-            "Keep startIntake on the first segment and add stopIntake on the second at Event Pos 0.6.",
-            "stopIntake is on the second segment at 0.6.",
+      showMe: ["tool-event", "lesson-segment", "lesson-lib-key"],
+      segment: secondSegment,
+      checks: [
+        {
+          label: "Placed on segment 2",
+          check: outcome((path) =>
+            feedback(
+              secondSegmentEvents(path).length > 0,
+              "Choose Event, then click between the translation target and End.",
+              "",
+            ),
           ),
-          pathEventKeys(path),
-          ["startIntake", "stopIntake"],
-        );
-      }),
+        },
+        {
+          label: "Event Pos 0.6",
+          check: outcome((path) => {
+            const events = secondSegmentEvents(path);
+            const ratio = events.at(-1)?.t_ratio;
+            return feedback(
+              events.some((event) => Math.abs(event.t_ratio - 0.6) < 0.015),
+              ratio === undefined
+                ? "Place the event first."
+                : `Type 0.6 in Event Pos (now ${ratio.toFixed(2)}).`,
+              "",
+            );
+          }),
+        },
+        {
+          label: "Lib Key `stopIntake`",
+          check: outcome((path) => {
+            const keys = secondSegmentEvents(path).map(
+              (event) => event.lib_key,
+            );
+            return withEventKeyCaseHint(
+              feedback(
+                keys.some((key) => key.trim() === "stopIntake"),
+                keys.length
+                  ? "Click `stopIntake` to fill the Lib Key field."
+                  : "Place the event first.",
+                "",
+              ),
+              keys,
+              ["stopIntake"],
+            );
+          }),
+        },
+      ],
     },
     {
       title: "Try both events",

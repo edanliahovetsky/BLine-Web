@@ -6,7 +6,7 @@ export const offlineTour: TourDefinition = {
   title: "How to use BLine offline",
   summary: "Keep editing in your browser without internet",
   durationMinutes: 1,
-  completionMessage: "Lesson complete.",
+  recap: ["Lesson complete."],
   practicePath: createFundamentalsDemoPath,
   steps: [
     {

@@ -1,4 +1,8 @@
-import type { FieldViewport } from "../../canvas/geometry";
+import {
+  getElementPosition,
+  modelToStagePoint,
+  type FieldViewport,
+} from "../../canvas/geometry";
 import { simulationEventKeysAtTime } from "../../canvas/simulationEventPulse";
 import type { PathModel } from "../../core/model/path";
 import type { SimTraceResult } from "../../core/sim";
@@ -22,12 +26,18 @@ export function TourFieldComparison({
 }) {
   const tourId = useStoreSelector(tourStore, (state) => state.activeTourId);
   const stepIndex = useStoreSelector(tourStore, (state) => state.stepIndex);
-  const phase = findTour(tourId)?.steps[stepIndex]?.canvasLesson;
+  const step = findTour(tourId)?.steps[stepIndex];
+  const phase = step?.canvasLesson;
   const handoff = phase?.startsWith("handoff-") || phase === "low-acceleration";
   const current = sampleAtTime(result.trace, time);
   const events = simulationEventKeysAtTime(path, result.trace, time);
   return (
     <>
+      <SegmentCue
+        viewport={viewport}
+        path={path}
+        segment={step?.segment?.(path) ?? null}
+      />
       {handoff && (
         <TourHandoffGuide
           viewport={viewport}
@@ -59,5 +69,39 @@ export function TourFieldComparison({
         )}
       </div>
     </>
+  );
+}
+
+const segmentCuePadding = 18;
+
+/** An invisible box over a lesson's segment, for the spotlight and Show me. */
+function SegmentCue({
+  viewport,
+  path,
+  segment,
+}: {
+  viewport: FieldViewport;
+  path: PathModel;
+  segment: readonly [number, number] | null;
+}) {
+  const ends = segment?.map((index) =>
+    getElementPosition(path.path_elements, index),
+  );
+  if (!ends?.[0] || !ends[1]) return null;
+  const [a, b] = ends.map((point) => modelToStagePoint(point!, viewport));
+  const left = Math.min(a.x, b.x) - segmentCuePadding;
+  const top = Math.min(a.y, b.y) - segmentCuePadding;
+  return (
+    <div
+      className="tour-segment-cue"
+      data-tour="lesson-segment"
+      aria-hidden="true"
+      style={{
+        left,
+        top,
+        width: Math.abs(a.x - b.x) + segmentCuePadding * 2,
+        height: Math.abs(a.y - b.y) + segmentCuePadding * 2,
+      }}
+    />
   );
 }

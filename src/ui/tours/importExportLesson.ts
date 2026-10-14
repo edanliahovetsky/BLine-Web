@@ -177,7 +177,7 @@ export function createImportExportTour(
         ? "Open an autos folder and save edits directly on desktop"
         : "Move autos folders between your browser and robot project",
     durationMinutes: 3,
-    completionMessage: "Lesson complete.",
+    recap: ["Lesson complete."],
     markers: organizationMarkers,
     practicePath: () => createTransferPaths()[0].path,
     practicePaths: createTransferPaths,

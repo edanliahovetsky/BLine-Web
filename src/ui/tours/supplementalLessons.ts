@@ -457,7 +457,7 @@ const definitions: SupplementalTour[] = [
     title: "Path Management",
     summary: "Organize autos and test paths with Path Groups",
     durationMinutes: 4,
-    completionMessage: "Lesson complete.",
+    recap: ["Lesson complete."],
     practicePath: () => createManagementPaths()[0].path,
     practicePaths: createManagementPaths,
     practiceGroups: createManagementGroups,
@@ -471,7 +471,7 @@ const definitions: SupplementalTour[] = [
     title: "Advanced — Current-pose Starts",
     summary: "Start a path wherever the robot is when it runs",
     durationMinutes: 3,
-    completionMessage: "Lesson complete.",
+    recap: ["Lesson complete."],
     practiceConfig,
     practicePath: () =>
       createPathModel({
@@ -540,7 +540,7 @@ const definitions: SupplementalTour[] = [
     title: "Advanced — Handoff Modes",
     summary: "Choose when the follower moves to the next point",
     durationMinutes: 3,
-    completionMessage: "Lesson complete.",
+    recap: ["Lesson complete."],
     practiceConfig,
     practicePath: () =>
       createPathModel({
@@ -631,7 +631,7 @@ const definitions: SupplementalTour[] = [
     title: "Advanced — Linked Elements",
     summary: "Link waypoints so both paths update when you edit them",
     durationMinutes: 4,
-    completionMessage: "Lesson complete.",
+    recap: ["Lesson complete."],
     markers: organizationMarkers,
     practicePath: () => createLinkedElementPaths()[0].path,
     practicePaths: createLinkedElementPaths,
@@ -644,7 +644,7 @@ const definitions: SupplementalTour[] = [
     title: "Advanced — Path Linking",
     summary: "Connect one path’s End to the next path’s Start",
     durationMinutes: 4,
-    completionMessage: "Lesson complete.",
+    recap: ["Lesson complete."],
     markers: linkingMarkers,
     practicePath: () => createPathLinkingPaths()[0].path,
     practicePaths: createPathLinkingPaths,

@@ -4,10 +4,8 @@ import {
   createWaypoint,
   createTranslationTarget,
   createRotationTarget,
-  createEventTrigger,
   isAnchorElement,
   type PathModel,
-  type PathElement,
 } from "../../core/model/path";
 import type { ProjectConfig } from "../../core/model/project";
 import {
@@ -16,7 +14,7 @@ import {
 } from "../../core/sim";
 import { getElementPosition } from "../../canvas/geometry";
 import { refreshAutoVelocityConstraints } from "../../core/constraints/autoVelocityApply";
-import type { TourMarker, TourExperiment } from "./tourStore";
+import type { TourMarker } from "./tourStore";
 import { traceClearsObstacle, type BumperObstacle } from "./bumperClearance";
 
 export const practiceField = { width: 18, height: 9 };
@@ -119,14 +117,6 @@ export function translation(x: number, y: number, radius = 0.25) {
     handoff_radius_source: "manual",
   });
 }
-export function createBuildPath() {
-  return createPathModel();
-}
-export function createShapePath() {
-  return createPathModel({
-    path_elements: [waypoint(5, 2), waypoint(15, 2.5, -90)],
-  });
-}
 export function createSpeedPath() {
   return createPathModel({
     path_elements: [
@@ -165,57 +155,6 @@ export function createHandoffPath() {
     ],
   });
 }
-export function createHeadingPath() {
-  return createPathModel({
-    path_elements: [waypoint(5, 2), translation(8, 6)],
-  });
-}
-export function createEventsPath() {
-  const path = createHeadingPath();
-  path.path_elements.splice(
-    1,
-    0,
-    createRotationTarget({
-      rotation_radians: Math.PI / 2,
-      t_ratio: 0.5,
-      profiled_rotation: true,
-    }),
-  );
-  path.ranged_constraints = [
-    {
-      key: "max_velocity_meters_per_sec",
-      value: 2,
-      source: "manual",
-      start_ordinal: 1,
-      end_ordinal: 2,
-    },
-  ];
-  return path;
-}
-export function createMissionPath(broken = false): PathModel {
-  const pickup = waypoint(8, 6, 90);
-  pickup.translation_target.intermediate_handoff_radius_meters = 0.15;
-  pickup.translation_target.handoff_radius_source = "manual";
-  return createPathModel({
-    path_elements: [
-      waypoint(5, 2),
-      createRotationTarget({
-        rotation_radians: Math.PI / 2,
-        t_ratio: 0.65,
-        profiled_rotation: true,
-      }),
-      createEventTrigger({
-        t_ratio: 0.8,
-        lib_key: broken ? "" : "startIntake",
-      }),
-      pickup,
-      translation(12.8, 6.3, 0.25),
-      createEventTrigger({ t_ratio: 0.85, lib_key: "prepareDelivery" }),
-      waypoint(15, broken ? -0.25 : 2.5, -90),
-    ],
-  });
-}
-
 export function anchorPositions(path: PathModel) {
   return path.path_elements.flatMap((element, index) => {
     const point = isAnchorElement(element)
@@ -223,15 +162,6 @@ export function anchorPositions(path: PathModel) {
       : null;
     return point ? [{ ...point, index }] : [];
   });
-}
-
-export function geometrySignature(path: PathModel | null): string {
-  return JSON.stringify(
-    path?.path_elements.map((element, index) => ({
-      type: element.type,
-      point: getElementPosition(path.path_elements, index),
-    })) ?? [],
-  );
 }
 
 export function near(
@@ -248,7 +178,6 @@ export function near(
   );
 }
 
-/** A conservative bumper envelope, including the space between samples. */
 export function segmentClearsStructure(
   a: { x_meters: number; y_meters: number },
   b: { x_meters: number; y_meters: number },
@@ -300,32 +229,6 @@ export function clearance(
     obstacle,
   );
 }
-export function withinField(
-  path: PathModel,
-  config: ProjectConfig,
-  preview = false,
-) {
-  const margin =
-    Math.hypot(config.gui.robot.length_meters, config.gui.robot.width_meters) /
-    2;
-  const points = preview
-    ? practiceSimulation(path, config).trace.map((point) => ({
-        x_meters: point.x_m,
-        y_meters: point.y_m,
-      }))
-    : anchorPositions(path);
-  return (
-    points.length > 0 &&
-    points.every(
-      (point) =>
-        point.x_meters >= margin &&
-        point.x_meters <= practiceField.width - margin &&
-        point.y_meters >= margin &&
-        point.y_meters <= practiceField.height - margin,
-    )
-  );
-}
-
 export function sampleAtTime(
   trace: readonly SimulationTraceSample[],
   time: number,
@@ -339,105 +242,4 @@ export function sampleAtTime(
     else high = middle;
   }
   return trace[low];
-}
-
-export function cornerReplayWindow(
-  trace: readonly SimulationTraceSample[],
-  kind: TourExperiment,
-  path: PathModel,
-): { start: number; end: number } {
-  const lastTime = trace.at(-1)?.time_s ?? 0;
-  const anchors = anchorPositions(path);
-  const target =
-    kind === "handoff" ? anchors[1] : kind === "speed" ? anchors[2] : null;
-  if (!target) return { start: 0, end: lastTime };
-  let closest = 0;
-  let distance = Infinity;
-  trace.forEach((point, i) => {
-    const next = Math.hypot(
-      point.x_m - target.x_meters,
-      point.y_m - target.y_meters,
-    );
-    if (next < distance) {
-      closest = i;
-      distance = next;
-    }
-  });
-  return {
-    start: Math.max(0, (trace[closest]?.time_s ?? 0) - 1.3),
-    end: Math.min(lastTime, (trace[closest]?.time_s ?? 0) + 1.6),
-  };
-}
-
-export function demonstrationPaths(kind: TourExperiment): {
-  before: PathModel;
-  after: PathModel;
-  labels: [string, string];
-} {
-  if (kind === "handoff") {
-    const before = createHandoffPath();
-    (
-      before.path_elements[1] as ReturnType<typeof translation>
-    ).intermediate_handoff_radius_meters = 0.25;
-    const after = structuredClone(before);
-    (
-      after.path_elements[1] as ReturnType<typeof translation>
-    ).intermediate_handoff_radius_meters = 1.5;
-    return { before, after, labels: ["0.25 m radius", "1.5 m radius"] };
-  }
-  if (kind === "events") {
-    const before = createEventsPath();
-    before.path_elements.splice(
-      2,
-      0,
-      createEventTrigger({ lib_key: "startIntake", t_ratio: 0.7 }),
-    );
-    const after = structuredClone(before);
-    after.ranged_constraints[0].value = 1;
-    return {
-      before,
-      after,
-      labels: ["2 m/s limit, event at 0.7", "1 m/s limit, event at 0.7"],
-    };
-  }
-  if (kind === "speed") {
-    const before = createSpeedPath();
-    const after = structuredClone(before);
-    after.ranged_constraints = [
-      {
-        key: "max_velocity_meters_per_sec",
-        value: 1.2,
-        start_ordinal: 3,
-        end_ordinal: 3,
-        source: "manual",
-      },
-    ];
-    return { before, after, labels: ["Global speed", "Slower approach"] };
-  }
-  const before = createHeadingPath();
-  before.path_elements.splice(
-    1,
-    0,
-    createRotationTarget({
-      rotation_radians: Math.PI / 2,
-      t_ratio: 0.6,
-      profiled_rotation: false,
-    }),
-  );
-  const after = structuredClone(before);
-  (
-    after.path_elements[1] as ReturnType<typeof createRotationTarget>
-  ).profiled_rotation = true;
-  return { before, after, labels: ["Non-profiled", "Profiled"] };
-}
-
-export function elementPositionSignature(element: PathElement): string {
-  if (element.type === "waypoint")
-    return JSON.stringify([
-      element.translation_target.x_meters,
-      element.translation_target.y_meters,
-    ]);
-  if (element.type === "translation")
-    return JSON.stringify([element.x_meters, element.y_meters]);
-  return JSON.stringify(element);
 }

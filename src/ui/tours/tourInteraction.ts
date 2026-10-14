@@ -1,4 +1,3 @@
-import type { PathElement, PathModel } from "../../core/model/path";
 import { tourStore, type TourFeedback, type TourStep } from "./tourStore";
 
 /** Opening a control is an action; closing it again does not undo learning it. */
@@ -13,49 +12,19 @@ export function observedTourCondition(condition: () => boolean): () => boolean {
 }
 
 /** The same assessment is used for feedback, placement locks, and Next. */
-export function assessTourStep(
-  step: TourStep,
-  path: PathModel | null,
-): TourFeedback {
-  if (step.elements && !path)
-    return {
-      complete: false,
-      message:
-        "Practice path missing. Exit and reopen this lesson from Lessons.",
-    };
-  if (step.elements && path) {
-    const types: PathElement["type"][] = [
-      "waypoint",
-      "translation",
-      "rotation",
-      "event_trigger",
-    ];
-    for (const type of types) {
-      const actual = path.path_elements.filter(
-        (element) => element.type === type,
-      ).length;
-      const expected = step.elements[type] ?? 0;
-      if (actual !== expected) {
-        const label =
-          type === "event_trigger"
-            ? "event trigger"
-            : type === "translation"
-              ? "translation target"
-              : type === "rotation"
-                ? "rotation target"
-                : "waypoint";
-        return {
-          complete: false,
-          message: `${actual > expected ? "Extra" : "Missing"} ${label}. Press ⌘Z or Ctrl+Z to ${actual > expected ? "remove" : "restore"} it.`,
-        };
-      }
-    }
-  }
-  const invariant = step.validate?.();
-  if (invariant && !invariant.complete) return invariant;
-  return (
-    step.check?.() ?? { complete: step.completeWhen?.() ?? true, message: "" }
-  );
+export function assessTourStep(step: TourStep): TourFeedback {
+  const items = step.checks?.map(({ label, check }) => {
+    const result = check();
+    return { label, complete: result.complete, hint: result.message };
+  });
+  const overall = step.check?.() ?? { complete: true, message: "" };
+  if (!items) return overall;
+  const unmet = items.find((item) => !item.complete);
+  return {
+    complete: !unmet && overall.complete,
+    message: unmet ? unmet.hint : overall.message,
+    items,
+  };
 }
 
 export function tourInteractionTargets(step: TourStep): readonly string[] {

@@ -3146,9 +3146,13 @@ export function AppShell() {
       <TourOverlay
         onRestartStep={() => tourSessionRef.current?.restartStep()}
         onRestartLesson={() => tourSessionRef.current?.restartLesson()}
-        onFinish={() => {
+        onOpenLessons={() => {
           setShowPathHealth(false);
           setShowTourPicker(true);
+        }}
+        onStartLesson={(tourId) => {
+          setShowPathHealth(false);
+          if (!startGuidedTour(tourId)) setShowTourPicker(true);
         }}
         onPrepare={(preparation) => {
           if (preparation.closeMenus) setOpenTopMenu(null);

@@ -14,6 +14,8 @@ import type {
 import { selectionStore } from "../../state/selectionStore";
 import { findTour, tourPracticePathName } from "./tours";
 import { tourStore, type TourDefinition, type TourState } from "./tourStore";
+import { readLessonResume, rememberLessonResume } from "./lessonResume";
+import type { ProjectConfig } from "../../core/model/project";
 
 interface ActiveTourSession<View> {
   project: ProjectStoreState;
@@ -36,7 +38,8 @@ export interface TourSessionControllerOptions<View> {
 }
 
 export interface TourSessionController {
-  start(tourId: string): boolean;
+  /** With `resume`, reopen the lesson where the learner last left it. */
+  start(tourId: string, options?: { resume?: boolean }): boolean;
   restartStep(): void;
   restartLesson(): void;
   restore(): void;
@@ -180,7 +183,7 @@ export function createTourSessionController<View>(
   };
 
   return {
-    start(tourId) {
+    start(tourId, { resume = false } = {}) {
       const definition = resolveTour(tourId);
       const state = projects.getState();
       if (
@@ -214,15 +217,36 @@ export function createTourSessionController<View>(
           path: definition.practicePath(),
         },
       ];
-      const practicePathId = practicePaths[0].path_id;
-      const practiceProject = createProject({
-        project_id: practiceProjectId,
-        display_name: state.project?.display_name ?? tourPracticePathName,
-        config: definition.practiceConfig?.() ?? state.project?.config,
-        paths: practicePaths,
-        path_groups: definition.practiceGroups?.(),
-        linked_targets: definition.practiceLinkedTargets?.(),
-      });
+      const saved = resume ? readLessonResume() : null;
+      const resumePoint =
+        saved?.point.tourId === tourId &&
+        saved.point.stepIndex < definition.steps.length
+          ? saved.point
+          : null;
+      const resumeSnapshot = resumePoint ? saved?.snapshot : null;
+      const practiceProject = resumeSnapshot
+        ? structuredClone({
+            ...resumeSnapshot.project,
+            project_id: practiceProjectId,
+          })
+        : createProject({
+            project_id: practiceProjectId,
+            display_name: state.project?.display_name ?? tourPracticePathName,
+            config: withLessonEventKeys(
+              definition.practiceConfig?.() ?? state.project?.config,
+              definition.eventKeys,
+            ),
+            paths: practicePaths,
+            path_groups: definition.practiceGroups?.(),
+            linked_targets: definition.practiceLinkedTargets?.(),
+          });
+      const practicePathId =
+        resumeSnapshot?.activePathId &&
+        practiceProject.paths.some(
+          (path) => path.path_id === resumeSnapshot.activePathId,
+        )
+          ? resumeSnapshot.activePathId
+          : practiceProject.paths[0].path_id;
 
       active = {
         project: state,
@@ -240,7 +264,7 @@ export function createTourSessionController<View>(
       projects.setState({
         project: practiceProject,
         activePathId: practicePathId,
-        activePathGroupId: null,
+        activePathGroupId: resumeSnapshot?.activePathGroupId ?? null,
         io: null,
         version: undefined,
         dirty: false,
@@ -265,8 +289,20 @@ export function createTourSessionController<View>(
           projects.setState({ dirty: false, saveQueued: false });
         }
       });
+      // A resumed step keeps the learner's saved work instead of its seed path.
+      let keepResumedStep = resumeSnapshot !== null;
       unsubscribeTour = tours.subscribe((nextState, previousState) => {
         if (previousState.activeTourId && !nextState.activeTourId) {
+          const left = snapshot();
+          if (nextState.suspended?.tourId === previousState.activeTourId)
+            rememberLessonResume({
+              point: nextState.suspended,
+              snapshot: left && {
+                project: left.project,
+                activePathId: left.activePathId,
+                activePathGroupId: left.activePathGroupId,
+              },
+            });
           restoreSession();
         } else if (nextState.activeTourId) {
           if (
@@ -277,11 +313,13 @@ export function createTourSessionController<View>(
             const departing = snapshot();
             if (previousState.activeTourId && departing)
               visitedStates.set(previousState.stepIndex, departing);
-            const saved = visitedStates.get(nextState.stepIndex);
-            const seed =
-              definition.steps[nextState.stepIndex]?.prepare?.practicePath;
-            if (saved) {
-              loadSnapshot(saved);
+            const visited = visitedStates.get(nextState.stepIndex);
+            const seed = keepResumedStep
+              ? undefined
+              : definition.steps[nextState.stepIndex]?.prepare?.practicePath;
+            keepResumedStep = false;
+            if (visited) {
+              loadSnapshot(visited);
             } else if (seed) {
               const current = projects.getState();
               if (current.project) {
@@ -312,7 +350,7 @@ export function createTourSessionController<View>(
           captureCheckpoint(nextState.stepIndex);
         }
       });
-      tours.getState().start(tourId);
+      tours.getState().start(tourId, resumePoint ?? undefined);
       return true;
     },
     restartStep() {
@@ -341,6 +379,19 @@ export function createTourSessionController<View>(
       unsubscribeTour = null;
     },
   };
+}
+
+/** Register the keys a lesson asks for so the Lib Key field suggests them. */
+function withLessonEventKeys(
+  config: ProjectConfig | undefined,
+  keys: readonly string[] | undefined,
+): ProjectConfig | undefined {
+  if (!config || !keys?.length) return config;
+  const next = structuredClone(config);
+  next.gui.event_trigger_keys = [
+    ...new Set([...(next.gui.event_trigger_keys ?? []), ...keys]),
+  ];
+  return next;
 }
 
 function createSessionId(kind: "practice" | "restored"): string {

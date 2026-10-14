@@ -4,20 +4,19 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import { createPortal } from "react-dom";
 import { useStoreSelector } from "../../state/react";
-import { captureTourStepState, findTour } from "./tours";
+import { captureTourStepState, findTour, tours } from "./tours";
 import { visibleTourRect, type TourRect } from "./tourGeometry";
-import { TourLab } from "./TourLab";
-import { TourHandoff } from "./TourHandoff";
-import { tourStore, type TourStepPreparation } from "./tourStore";
 import {
-  activePathForProjectStore,
-  projectStore,
-} from "../../state/projectStore";
+  tourStore,
+  type TourFeedback,
+  type TourStepPreparation,
+} from "./tourStore";
+import { projectStore } from "../../state/projectStore";
 import { selectionStore } from "../../state/selectionStore";
-import { useDialogFocusTrap } from "../app/useDialogFocusTrap";
 import {
   assessTourStep,
   tourAllowsShortcut,
@@ -25,25 +24,39 @@ import {
   tourControlledPopups,
   tourInteractionTargets,
 } from "./tourInteraction";
+import {
+  LessonText,
+  TourCardHeader,
+  TourChecklist,
+  TourConfirmDialog,
+  TourRecap,
+  WhyToggle,
+} from "./TourCard";
+import { trackEventKeyFields } from "./lessonKeyChips";
 
 const cardWidth = 304;
 const cardGap = 14;
 const viewportMargin = 12;
 const fallbackCardHeight = 200;
-// Keep the hover treatment available without fading lesson instructions.
-const tourHoverFadeEnabled = false;
+const showMeInterval = 1300;
+const confirmationSelector = '[data-tour="lesson-confirmation"]';
 
 export interface TourOverlayProps {
   /** Applies any editor state a step needs before it can be shown. */
   onPrepare(preparation: TourStepPreparation): void;
-  /** Returns the learner to the course menu after a completed lesson. */
-  onFinish(): void;
+  /** Opens the course menu, e.g. from a finished lesson's recap. */
+  onOpenLessons(): void;
+  /** Starts another lesson, e.g. the recap's Next lesson. */
+  onStartLesson(tourId: string): void;
   onRestartStep?(): void;
   onRestartLesson?(): void;
 }
 
+type Confirmation = "restart" | "leave";
+
 export function TourOverlay({
-  onFinish,
+  onOpenLessons,
+  onStartLesson,
   onPrepare,
   onRestartStep,
   onRestartLesson,
@@ -51,6 +64,10 @@ export function TourOverlay({
   const activeTourId = useStoreSelector(
     tourStore,
     (state) => state.activeTourId,
+  );
+  const finishedTourId = useStoreSelector(
+    tourStore,
+    (state) => state.finishedTourId,
   );
   const stepIndex = useStoreSelector(tourStore, (state) => state.stepIndex);
   const attemptId = useStoreSelector(tourStore, (state) => state.attemptId);
@@ -67,14 +84,12 @@ export function TourOverlay({
   const step = tour?.steps[stepIndex] ?? null;
   const stepCount = tour?.steps.length ?? 0;
   const stepTarget = step?.target ?? null;
-  const stepPlacement = step?.placement ?? "below";
   const wantsInspector = step?.prepare?.inspector ?? null;
   const wantsInspectorTab = step?.prepare?.inspectorTab ?? null;
   const wantsTool = step?.prepare?.tool ?? null;
   const wantsClearSelection = step?.prepare?.clearSelection ?? false;
   const wantsSelectElement = step?.prepare?.selectElement ?? null;
   const wantsSelectSpeed = step?.prepare?.selectSpeed ?? null;
-  const wantsReference = step?.captureReference ?? false;
   const wantsSimulation = step?.prepare?.simulation ?? null;
   const wantsPathHealth = step?.prepare?.pathHealth ?? null;
   const wantsNavigator = step?.prepare?.navigator ?? null;
@@ -82,32 +97,65 @@ export function TourOverlay({
   const wantsAutoPlay = step?.prepare?.autoPlay;
   const wantsCloseMenus = step?.prepare?.closeMenus;
 
-  const cardRef = useRef<HTMLDivElement | null>(null);
+  const cardRef = useRef<HTMLElement | null>(null);
   const restartLessonButtonRef = useRef<HTMLButtonElement>(null);
+  const leaveButtonRef = useRef<HTMLElement | null>(null);
   const preparedStepRef = useRef<string | null>(null);
   const capturedStepTokens = useRef(new Set<string>());
   const [rect, setRect] = useState<TourRect | null>(null);
   const [visibleHoles, setVisibleHoles] = useState<TourRect[]>([]);
-  const [feedbackState, setFeedback] = useState({ token: "", message: "" });
-  const [hintState, setHintState] = useState({ token: "", count: 0 });
-  const [labState, setLabState] = useState<{
+  const [feedbackState, setFeedback] = useState<{
     token: string;
-    example: boolean;
+    result: TourFeedback;
+  }>({ token: "", result: { complete: false, message: "" } });
+  const [confirmation, setConfirmation] = useState<{
+    token: string;
+    kind: Confirmation;
   } | null>(null);
-  const [restartConfirmationToken, setRestartConfirmationToken] = useState<
-    string | null
-  >(null);
+  const [showMeState, setShowMeState] = useState<{
+    token: string;
+    index: number;
+  } | null>(null);
+  const [collapsedTour, setCollapsedTour] = useState<string | null>(null);
+  const [dragged, setDragged] = useState<{
+    tourId: string;
+    left: number;
+    top: number;
+  } | null>(null);
   const stepToken = `${activeTourId}:${attemptId}:${stepIndex}`;
-  const confirmingRestart = restartConfirmationToken === stepToken;
-  const cancelRestart = useCallback(() => {
-    setRestartConfirmationToken(null);
+  const confirming =
+    confirmation?.token === stepToken ? confirmation.kind : null;
+  const collapsed = !!activeTourId && collapsedTour === activeTourId;
+  const cancelConfirmation = useCallback(() => {
+    const kind = confirmation?.kind;
+    setConfirmation(null);
     // The card must stop being inert before its trigger can receive focus.
-    window.requestAnimationFrame(() => restartLessonButtonRef.current?.focus());
-  }, [setRestartConfirmationToken]);
-  const feedback =
-    feedbackState.token === stepToken ? feedbackState.message : "";
-  const hintCount = hintState.token === stepToken ? hintState.count : 0;
-  const lab = labState?.token === stepToken ? labState : null;
+    window.requestAnimationFrame(() =>
+      (kind === "restart"
+        ? restartLessonButtonRef.current
+        : cardRef.current?.querySelector<HTMLElement>(
+            '[data-testid="tour-leave"]',
+          )
+      )?.focus(),
+    );
+  }, [confirmation]);
+  const requestLeave = useCallback(() => {
+    leaveButtonRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    setConfirmation({ token: stepToken, kind: "leave" });
+  }, [stepToken]);
+  const feedbackResult =
+    feedbackState.token === stepToken ? feedbackState.result : null;
+  const feedback = feedbackResult?.message ?? "";
+  const showMeTargets =
+    step?.showMe ??
+    (stepTarget && stepTarget !== "path-canvas" ? [stepTarget] : []);
+  const showMeIndex =
+    showMeState?.token === stepToken ? showMeState.index : null;
+  const showMeTarget =
+    showMeIndex === null ? null : (showMeTargets[showMeIndex] ?? null);
   const visibleToken = [
     "path-canvas",
     stepTarget,
@@ -119,7 +167,6 @@ export function TourOverlay({
   ]
     .filter(Boolean)
     .join("|");
-  const hintTarget = hintCount > 1 ? step?.hintTargets?.[0] : null;
   const [holes, setHoles] = useState<TourRect[]>([]);
   const [cardHeight, setCardHeight] = useState(fallbackCardHeight);
   const interactToken = isReviewing
@@ -129,6 +176,24 @@ export function TourOverlay({
       : "";
   const actionComplete = completedSteps.includes(stepIndex);
   const lockInteractionOnComplete = step?.lockInteractionOnComplete ?? false;
+
+  useEffect(
+    () => (activeTourId ? trackEventKeyFields() : undefined),
+    [activeTourId],
+  );
+
+  // Step through each Show me target, then return to the step's spotlight.
+  useEffect(() => {
+    if (showMeIndex === null) return;
+    const timer = window.setTimeout(() => {
+      setShowMeState((current) =>
+        current && current.index + 1 < showMeTargets.length
+          ? { ...current, index: current.index + 1 }
+          : null,
+      );
+    }, showMeInterval);
+    return () => window.clearTimeout(timer);
+  }, [showMeIndex, showMeTargets.length]);
 
   // Put the editor into the state this step needs once per step, so the
   // baseline for action-driven steps is not reset on every render.
@@ -182,16 +247,9 @@ export function TourOverlay({
         closeMenus: wantsCloseMenus,
       });
     }
-    const needsCapture = !isReviewing && !capturedStepTokens.current.has(token);
-    if (needsCapture) {
+    if (!isReviewing && !capturedStepTokens.current.has(token)) {
       captureTourStepState();
       capturedStepTokens.current.add(token);
-    }
-    if (needsCapture && wantsReference) {
-      const project = projectStore.getState().project;
-      const path = activePathForProjectStore(projectStore.getState())?.path;
-      if (project && path)
-        tourStore.getState().captureReference({ path, config: project.config });
     }
   }, [
     activeTourId,
@@ -205,7 +263,6 @@ export function TourOverlay({
     wantsClearSelection,
     wantsSelectElement,
     wantsSelectSpeed,
-    wantsReference,
     wantsSimulation,
     wantsPathHealth,
     wantsNavigator,
@@ -243,7 +300,13 @@ export function TourOverlay({
           ? document.querySelector<HTMLElement>(
               '[role="dialog"][aria-label="Path health"]',
             )
-          : document.querySelector<HTMLElement>(`[data-tour="${id}"]`);
+          : id === "lesson-lib-key"
+            ? (document
+                .querySelector<HTMLElement>(
+                  '[data-testid="property-editor"] input[aria-label="Lib Key"]',
+                )
+                ?.closest<HTMLElement>(".property-row") ?? null)
+            : document.querySelector<HTMLElement>(`[data-tour="${id}"]`);
       if (!element) {
         return null;
       }
@@ -263,9 +326,9 @@ export function TourOverlay({
     const measure = () => {
       // Concept steps have no target; drop any previous spotlight.
       setRect(
-        hintTarget
-          ? measureTour(hintTarget)
-          : stepTarget
+        showMeTarget
+          ? measureTour(showMeTarget)
+          : stepTarget && stepTarget !== "path-canvas"
             ? measureTour(stepTarget)
             : null,
       );
@@ -309,7 +372,7 @@ export function TourOverlay({
     step,
     stepTarget,
     visibleToken,
-    hintTarget,
+    showMeTarget,
   ]);
 
   useLayoutEffect(() => {
@@ -322,7 +385,7 @@ export function TourOverlay({
     cardHeight,
     stepIndex,
     activeTourId,
-    hintCount,
+    collapsed,
     feedback,
   ]);
 
@@ -339,14 +402,12 @@ export function TourOverlay({
       return;
     }
     const update = () => {
-      const result = assessTourStep(
-        currentStep,
-        activePathForProjectStore(projectStore.getState())?.path ?? null,
-      );
+      const result = assessTourStep(currentStep);
       setFeedback((previous) =>
-        previous.token === stepToken && previous.message === result.message
+        previous.token === stepToken &&
+        JSON.stringify(previous.result) === JSON.stringify(result)
           ? previous
-          : { token: stepToken, message: result.message },
+          : { token: stepToken, result },
       );
       tourStore.getState().setStepComplete(stepIndex, result.complete);
     };
@@ -371,19 +432,13 @@ export function TourOverlay({
     if (!activeTourId || !step) return;
     const stopDisallowedInteraction = (event: Event) => {
       const target = event.target instanceof Element ? event.target : null;
-      if (
-        confirmingRestart &&
-        !target?.closest('[data-tour="lesson-restart-confirmation"]')
-      ) {
+      if (confirming && !target?.closest(confirmationSelector)) {
         event.preventDefault();
         event.stopImmediatePropagation();
         return;
       }
       if (!target || target.closest(".tour-layer")) return;
-      const complete = assessTourStep(
-        step,
-        activePathForProjectStore(projectStore.getState())?.path ?? null,
-      ).complete;
+      const complete = assessTourStep(step).complete;
       if (
         !isReviewing &&
         !(step.lockInteractionOnComplete && complete) &&
@@ -401,7 +456,7 @@ export function TourOverlay({
       for (const name of events)
         window.removeEventListener(name, stopDisallowedInteraction, true);
     };
-  }, [activeTourId, confirmingRestart, isReviewing, step]);
+  }, [activeTourId, confirming, isReviewing, step]);
 
   useEffect(() => {
     if (!activeTourId || !step) {
@@ -409,15 +464,15 @@ export function TourOverlay({
     }
 
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (confirmingRestart) {
+      if (confirming) {
         if (event.key === "Escape") {
           event.preventDefault();
           event.stopImmediatePropagation();
-          cancelRestart();
+          cancelConfirmation();
         } else if (
           !["Tab", "Enter", " "].includes(event.key) ||
           !(event.target instanceof Element) ||
-          !event.target.closest('[data-tour="lesson-restart-confirmation"]')
+          !event.target.closest(confirmationSelector)
         ) {
           event.preventDefault();
           event.stopImmediatePropagation();
@@ -425,12 +480,6 @@ export function TourOverlay({
         return;
       }
       if (event.key === "Escape") {
-        if (lab) {
-          event.preventDefault();
-          event.stopImmediatePropagation();
-          setLabState(null);
-          return;
-        }
         // Let an editor popup consume Escape before the lesson sees it.
         if (
           document.querySelector(
@@ -440,7 +489,7 @@ export function TourOverlay({
           return;
         event.preventDefault();
         event.stopImmediatePropagation();
-        tourStore.getState().exit();
+        requestLeave();
         return;
       }
       const target = event.target instanceof Element ? event.target : null;
@@ -521,15 +570,7 @@ export function TourOverlay({
         tourAllowsTarget(step, target)
       )
         return;
-      if (lab) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        return;
-      }
-      const complete = assessTourStep(
-        step,
-        activePathForProjectStore(projectStore.getState())?.path ?? null,
-      ).complete;
+      const complete = assessTourStep(step).complete;
       if (!isReviewing && tourAllowsShortcut(step, event, complete)) return;
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -537,7 +578,14 @@ export function TourOverlay({
 
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [activeTourId, confirmingRestart, cancelRestart, lab, isReviewing, step]);
+  }, [
+    activeTourId,
+    confirming,
+    cancelConfirmation,
+    requestLeave,
+    isReviewing,
+    step,
+  ]);
 
   useEffect(() => {
     // A short lesson card may have been scrolled down to Continue. Start each
@@ -552,7 +600,30 @@ export function TourOverlay({
   }, [stepIndex, activeTourId, stepTarget]);
 
   if (!tour || !step) {
-    return null;
+    const finished = findTour(finishedTourId);
+    if (!finished) return null;
+    const nextIndex = tours.indexOf(finished) + 1;
+    const nextLesson = tours[nextIndex] ?? null;
+    const close = () => tourStore.getState().dismissRecap();
+    return createPortal(
+      <div className="tour-layer tour-layer--recap">
+        <TourRecap
+          lessonTitle={finished.title}
+          recap={finished.recap}
+          nextLesson={nextLesson}
+          onClose={close}
+          onAllLessons={() => {
+            close();
+            onOpenLessons();
+          }}
+          onNext={() => {
+            close();
+            if (nextLesson) onStartLesson(nextLesson.id);
+          }}
+        />
+      </div>,
+      document.body,
+    );
   }
 
   // Keep the mission and inspector visible while the coach occupies quiet space.
@@ -566,15 +637,6 @@ export function TourOverlay({
       '[data-tour="project-navigator"], [data-tour="linked-elements-dialog"]',
     )
     ?.getBoundingClientRect();
-  if (
-    rect &&
-    stepTarget !== "path-canvas" &&
-    !stepTarget?.startsWith("lesson-")
-  ) {
-    if (stepPlacement === "right") cardLeft = rect.left + rect.width + cardGap;
-    else if (stepPlacement === "left")
-      cardLeft = Math.min(cardLeft, rect.left - cardWidth - cardGap);
-  }
   if (navigator) {
     cardLeft = navigator.right + cardGap;
     cardTop = 64;
@@ -600,6 +662,11 @@ export function TourOverlay({
       cardLeft = menuRight + cardGap;
     else cardTop = menuBottom + cardGap;
   }
+  // A card the learner moved stays where they put it for the whole lesson.
+  if (dragged?.tourId === activeTourId) {
+    cardLeft = dragged.left;
+    cardTop = dragged.top;
+  }
 
   cardLeft = Math.max(
     viewportMargin,
@@ -611,26 +678,44 @@ export function TourOverlay({
   );
 
   const isLastStep = stepIndex === stepCount - 1;
-  const actionGated = Boolean(
-    step.check || step.completeWhen || step.elements || step.validate,
-  );
+  const actionGated = Boolean(step.check || step.checks);
+  const canContinue = !actionGated || actionComplete || isReviewing;
   const handleNext = () => {
-    if (
-      !isReviewing &&
-      !assessTourStep(
-        step,
-        activePathForProjectStore(projectStore.getState())?.path ?? null,
-      ).complete
-    )
-      return;
+    if (!isReviewing && !assessTourStep(step).complete) return;
     tourStore.getState().setStepComplete(stepIndex, true);
     if (isLastStep) {
       tourStore.getState().finish();
-      onFinish();
       return;
     }
     tourStore.getState().next(stepCount);
   };
+  const startDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    if (event.button !== 0 || !activeTourId) return;
+    const card = cardRef.current?.getBoundingClientRect();
+    if (!card) return;
+    event.preventDefault();
+    const offsetX = event.clientX - card.left;
+    const offsetY = event.clientY - card.top;
+    const move = (moveEvent: PointerEvent) =>
+      setDragged({
+        tourId: activeTourId,
+        left: moveEvent.clientX - offsetX,
+        top: moveEvent.clientY - offsetY,
+      });
+    const stop = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+  };
+  const headline = step.task ?? step.title;
+  const items = feedbackResult?.items;
+  const status = isReviewing
+    ? "Previously completed."
+    : feedback || (actionComplete ? "Done." : "Complete the task to continue.");
 
   // Everything outside the step's allowed controls is shielded from clicks;
   // the gaps between these regions are the only spots where pointer events
@@ -640,6 +725,16 @@ export function TourOverlay({
     window.innerWidth,
     window.innerHeight,
   );
+  const continueButton = canContinue ? (
+    <button
+      type="button"
+      className="is-primary"
+      data-testid="tour-continue"
+      onClick={handleNext}
+    >
+      {isLastStep ? "Finish" : "Continue"}
+    </button>
+  ) : null;
 
   return createPortal(
     <div
@@ -663,16 +758,23 @@ export function TourOverlay({
           }}
         />
       ))}
-      {rect && stepTarget !== "path-canvas" && (
+      {rect && (
         <div
           className="tour-spotlight"
+          data-testid="tour-spotlight"
+          data-show-me={showMeTarget ?? undefined}
           style={{
             top: rect.top,
             left: rect.left,
             width: rect.width,
             height: rect.height,
           }}
-        />
+        >
+          <span
+            key={`${stepToken}:${showMeIndex ?? "step"}`}
+            className="tour-spotlight__pulse"
+          />
+        </div>
       )}
       {shieldRegions.map((region, index) => (
         <div
@@ -687,220 +789,184 @@ export function TourOverlay({
           }}
         />
       ))}
-      {lab && <div className="tour-lab-backdrop" />}
-      {lab && (step.experiment || step.demo) && (
-        <TourLab
-          key={`${stepToken}:${lab.example}`}
-          kind={(lab.example ? step.demo : step.experiment)!}
-          example={lab.example}
-          onClose={() => setLabState(null)}
-        />
-      )}
       <section
         ref={cardRef}
-        className="tour-card"
+        className={`tour-card${collapsed ? " is-collapsed" : ""}`}
         data-testid="tour-card"
-        data-hover-fade={tourHoverFadeEnabled}
-        inert={confirmingRestart}
+        inert={!!confirming}
         role="dialog"
         aria-modal="false"
         aria-label={`${tour.title}: step ${stepIndex + 1} of ${stepCount}`}
         tabIndex={-1}
         style={{ top: `${cardTop}px`, left: `${cardLeft}px` }}
       >
-        <div className="tour-card__meta">
-          <span>
-            <span aria-hidden="true">🧭</span> {tour.title}
-          </span>
-          <span data-testid="tour-step-count">
-            {stepIndex + 1} / {stepCount}
-          </span>
-        </div>
-        <h4>{step.title}</h4>
-        <p>{step.describe?.() ?? step.body}</p>
-        {step.resource ? (
-          <a
-            className="tour-card__resource"
-            href={step.resource.href}
-            target="_blank"
-            rel="noreferrer noopener"
-          >
-            {step.resource.label} ↗
-          </a>
-        ) : null}
-        {step.task ? (
-          <div className="tour-card__task">
-            <span>{step.phase ?? "Task"}</span>
-            <strong>{step.task}</strong>
-          </div>
-        ) : null}
-        {actionGated && (step.check || step.completeWhen || !actionComplete) ? (
-          <div
-            className={`tour-card__action-status ${
-              actionComplete ? "is-complete" : ""
-            }`}
-            role="status"
-          >
-            <span aria-hidden="true">{actionComplete ? "✓" : "○"}</span>
-            {isReviewing
-              ? "Previously completed."
-              : feedback
-                ? feedback
-                : actionComplete
-                  ? "Done."
-                  : "Complete the task to continue."}
-          </div>
-        ) : null}
-        {(step.hints?.length || step.demo) && (
-          <div className="tour-card__hints">
-            <button
-              onClick={() =>
-                setHintState({ token: stepToken, count: hintCount + 1 })
-              }
+        <TourCardHeader
+          lessonTitle={tour.title}
+          stepIndex={stepIndex}
+          stepCount={stepCount}
+          collapsed={collapsed}
+          onToggleCollapsed={() =>
+            setCollapsedTour(collapsed ? null : activeTourId)
+          }
+          onLeave={requestLeave}
+          onDragStart={startDrag}
+        />
+        <h4 className="tour-card__headline" data-testid="tour-headline">
+          {actionGated ? (
+            <span
+              className={`tour-card__headline-mark${canContinue ? " is-complete" : ""}`}
+              aria-hidden="true"
             >
-              {hintCount ? "More help" : "Get a hint"}
-            </button>
-            {step.hints?.slice(0, hintCount).map((hint) => (
-              <p key={hint}>{hint}</p>
-            ))}
-            {hintCount >= 2 && step.demo && (
-              <button
-                onClick={() => setLabState({ token: stepToken, example: true })}
-              >
-                Show worked example
-              </button>
-            )}
-          </div>
-        )}
-        {step.experiment && (
-          <button
-            className="tour-card__experiment"
-            onClick={() => setLabState({ token: stepToken, example: false })}
-          >
-            Compare runs
-          </button>
-        )}
-        {step.handoff && <TourHandoff />}
-        {isLastStep && (!actionGated || actionComplete) ? (
-          <p className="tour-card__completion">{tour.completionMessage}</p>
-        ) : null}
-        {step.keys && step.keys.length > 0 ? (
-          <div className="tour-card__keys">
-            {step.keys.map((key) => (
-              <kbd key={key}>{key}</kbd>
-            ))}
-          </div>
-        ) : null}
-        <div className="tour-card__progress" aria-label="Lesson progress">
-          {tour.steps.map((tourStep, index) => (
-            <button
-              type="button"
-              disabled={index > furthestStepIndex}
-              aria-label={`Review step ${index + 1}: ${tourStep.title}`}
-              aria-current={index === stepIndex ? "step" : undefined}
-              title={tourStep.title}
-              onClick={() => tourStore.getState().goTo(index)}
-              key={`${tourStep.title}-${index}`}
-              className={index <= stepIndex ? "is-done" : ""}
-            />
-          ))}
-        </div>
-        <div className="tour-card__recovery">
-          {onRestartStep && (
-            <button
-              onClick={onRestartStep}
-              title={
-                step.canvasLesson
-                  ? "Replay this animation"
-                  : "Reset this exercise to its starting state"
-              }
-            >
-              {step.canvasLesson ? "Replay" : "Restart step"}
-            </button>
-          )}
-          {onRestartLesson && (
-            <button
-              ref={restartLessonButtonRef}
-              onClick={() => setRestartConfirmationToken(stepToken)}
-              title="Start this lesson again"
-            >
-              Restart lesson
-            </button>
-          )}
-        </div>
-        <div className="tour-card__actions">
-          <button
-            type="button"
-            className="tour-card__skip"
-            onClick={() => tourStore.getState().exit()}
-          >
-            Skip lesson
-          </button>
-          <button
-            type="button"
-            disabled={stepIndex === 0}
-            onClick={() => tourStore.getState().back()}
-          >
-            Back
-          </button>
-          {!actionGated || actionComplete || isReviewing ? (
-            <button type="button" className="is-primary" onClick={handleNext}>
-              {isLastStep ? "Finish" : "Continue"}
-            </button>
+              {canContinue ? "✓" : "○"}
+            </span>
           ) : null}
-        </div>
+          <span>
+            <LessonText text={headline} />
+          </span>
+        </h4>
+        {collapsed ? (
+          continueButton ? (
+            <div className="tour-card__actions">{continueButton}</div>
+          ) : null
+        ) : (
+          <>
+            {step.task ? (
+              <p className="tour-card__step-title">{step.title}</p>
+            ) : null}
+            <p className="tour-card__body">
+              <LessonText text={step.body} />
+            </p>
+            {items ? (
+              <TourChecklist items={items} reviewing={isReviewing} />
+            ) : step.check ? (
+              <div
+                className={`tour-card__action-status ${
+                  canContinue ? "is-complete" : ""
+                }`}
+                role="status"
+              >
+                <span aria-hidden="true">{canContinue ? "✓" : "○"}</span>
+                <span>
+                  <LessonText text={status} />
+                </span>
+              </div>
+            ) : null}
+            {step.why || showMeTargets.length > 0 ? (
+              <div className="tour-card__aids">
+                {showMeTargets.length > 0 ? (
+                  <button
+                    type="button"
+                    className="tour-card__show-me"
+                    data-testid="tour-show-me"
+                    aria-pressed={showMeIndex !== null}
+                    onClick={() =>
+                      setShowMeState({ token: stepToken, index: 0 })
+                    }
+                  >
+                    Show me
+                  </button>
+                ) : null}
+                {step.why ? (
+                  <WhyToggle text={step.why} token={stepToken} />
+                ) : null}
+              </div>
+            ) : null}
+            {step.resource ? (
+              <a
+                className="tour-card__resource"
+                href={step.resource.href}
+                target="_blank"
+                rel="noreferrer noopener"
+              >
+                {step.resource.label} ↗
+              </a>
+            ) : null}
+            <div className="tour-card__progress" aria-label="Lesson progress">
+              {tour.steps.map((tourStep, index) => (
+                <button
+                  type="button"
+                  disabled={index > furthestStepIndex}
+                  aria-label={`Review step ${index + 1}: ${tourStep.title}`}
+                  aria-current={index === stepIndex ? "step" : undefined}
+                  title={tourStep.title}
+                  onClick={() => tourStore.getState().goTo(index)}
+                  key={`${tourStep.title}-${index}`}
+                  className={index <= stepIndex ? "is-done" : ""}
+                />
+              ))}
+            </div>
+            <div className="tour-card__footer">
+              <div className="tour-card__recovery">
+                {onRestartStep && (
+                  <button
+                    type="button"
+                    onClick={onRestartStep}
+                    title={
+                      step.canvasLesson
+                        ? "Replay this animation"
+                        : "Reset this exercise to its starting state"
+                    }
+                  >
+                    {step.canvasLesson ? "Replay" : "Restart step"}
+                  </button>
+                )}
+                {onRestartLesson && (
+                  <button
+                    type="button"
+                    ref={restartLessonButtonRef}
+                    onClick={() =>
+                      setConfirmation({ token: stepToken, kind: "restart" })
+                    }
+                    title="Start this lesson again"
+                  >
+                    Restart lesson
+                  </button>
+                )}
+              </div>
+              <div className="tour-card__actions">
+                <button
+                  type="button"
+                  disabled={stepIndex === 0}
+                  onClick={() => tourStore.getState().back()}
+                >
+                  Back
+                </button>
+                {continueButton}
+              </div>
+            </div>
+          </>
+        )}
       </section>
-      {confirmingRestart && onRestartLesson && (
-        <RestartLessonDialog
-          onCancel={cancelRestart}
+      {confirming === "restart" && onRestartLesson && (
+        <TourConfirmDialog
+          testId="tour-restart-confirmation"
+          title="Restart this lesson?"
+          description="This resets your practice edits and returns to the first step."
+          cancelLabel="Cancel"
+          confirmLabel="Restart lesson"
+          onCancel={cancelConfirmation}
           onConfirm={() => {
-            setRestartConfirmationToken(null);
+            setConfirmation(null);
             onRestartLesson();
+          }}
+        />
+      )}
+      {confirming === "leave" && (
+        <TourConfirmDialog
+          testId="tour-leave-confirmation"
+          title="Leave this lesson?"
+          description={`Your original project comes back. Reopen ${tour.title} from Lessons to resume at step ${stepIndex + 1}.`}
+          cancelLabel="Keep going"
+          confirmLabel="Leave lesson"
+          onCancel={cancelConfirmation}
+          onConfirm={() => {
+            setConfirmation(null);
+            tourStore.getState().exit();
           }}
         />
       )}
     </div>,
     document.body,
-  );
-}
-
-function RestartLessonDialog({
-  onCancel,
-  onConfirm,
-}: {
-  onCancel(): void;
-  onConfirm(): void;
-}) {
-  const dialogRef = useDialogFocusTrap<HTMLDivElement>();
-  const cancelRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    cancelRef.current?.focus();
-  }, []);
-  return (
-    <div className="tour-restart-backdrop">
-      <div
-        ref={dialogRef}
-        className="tour-restart-dialog"
-        data-tour="lesson-restart-confirmation"
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="tour-restart-title"
-        aria-describedby="tour-restart-description"
-      >
-        <h4 id="tour-restart-title">Restart this lesson?</h4>
-        <p id="tour-restart-description">
-          This resets your practice edits and returns to the first step.
-        </p>
-        <div className="tour-card__actions">
-          <button ref={cancelRef} type="button" onClick={onCancel}>
-            Cancel
-          </button>
-          <button type="button" className="is-primary" onClick={onConfirm}>
-            Restart lesson
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }
 

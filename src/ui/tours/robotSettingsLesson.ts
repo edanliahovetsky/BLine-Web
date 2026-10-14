@@ -182,8 +182,9 @@ export const robotSettingsTour: TourDefinition = {
   title: "Robot",
   summary: "Set bumper dimensions and animate protrusions with events",
   durationMinutes: 4,
-  completionMessage:
+  recap: [
     "You configured the robot footprint and animated an extension with event triggers.",
+  ],
   practiceConfig: createProjectConfig,
   practicePath: practiceSettingsPath,
   steps: [
@@ -280,8 +281,9 @@ export const pathDefaultsSettingsTour: TourDefinition = {
   title: "Path Defaults",
   summary: "Set default motion limits and end tolerances",
   durationMinutes: 2,
-  completionMessage:
+  recap: [
     "You explored the default motion limits and the tolerances for finishing a path.",
+  ],
   practiceConfig: createProjectConfig,
   practicePath: practiceSettingsPath,
   steps: [
@@ -325,8 +327,9 @@ export const fieldSettingsTour: TourDefinition = {
   title: "Field",
   summary: "Choose field images and resize a blank practice grid",
   durationMinutes: 2,
-  completionMessage:
+  recap: [
     "You changed the field image, resized a blank grid, and learned how custom images are scaled.",
+  ],
   practiceConfig: createProjectConfig,
   practicePath: practiceSettingsPath,
   steps: [
@@ -390,7 +393,7 @@ export const generatorSettingsTour: TourDefinition = {
   title: "Generator",
   summary: "Adjust safety factors and control automatic generation",
   durationMinutes: 2,
-  completionMessage: "You explored generator factors and automatic updates.",
+  recap: ["You explored generator factors and automatic updates."],
   practiceConfig: createProjectConfig,
   practicePath: practiceSettingsPath,
   steps: [
@@ -455,8 +458,9 @@ export const eventTriggerSettingsTour: TourDefinition = {
   title: "Event Triggers",
   summary: "Register, find, and manage reusable Lib Keys",
   durationMinutes: 2,
-  completionMessage:
+  recap: [
     "You registered a reusable key and explored project-wide rename, duplicate, and clear actions.",
+  ],
   practiceConfig: createProjectConfig,
   practicePath: createEventLessonPath,
   steps: [
