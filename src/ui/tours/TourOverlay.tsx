@@ -1112,6 +1112,14 @@ function quietCardPosition(
     { box: pathBox(canvasElement), weight: 1 },
     { box: target, weight: 50 },
     { box: dialog, weight: 5 },
+    {
+      box: boxOf(
+        document
+          .querySelector('[data-tour="project-navigator"]')
+          ?.getBoundingClientRect(),
+      ),
+      weight: 50,
+    },
     ...Array.from(
       document.querySelectorAll(
         ".canvas-tool-rail, .canvas-view-controls, .simulation-transport-row",
@@ -1184,7 +1192,14 @@ function quietCardPosition(
   costs.forEach((value, index) => {
     if (value < costs[best]) best = index;
   });
-  if (previous) {
+  // A spot left behind by a resized canvas or Navigator is chosen afresh.
+  if (
+    previous &&
+    previous.left >= minLeft &&
+    previous.left <= maxLeft &&
+    previous.top >= minTop - 64 &&
+    previous.top <= maxTop
+  ) {
     const kept = cost(
       previous,
       spots.findIndex(
