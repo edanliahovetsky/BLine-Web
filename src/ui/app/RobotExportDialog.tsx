@@ -3,6 +3,7 @@ import { Bot } from "lucide-react";
 import { ActionButton, CloseButton } from "../controls";
 import {
   browserRobotFolderMemory,
+  practiceRobotFolderMemory,
   robotDeployAutosPath,
   type RememberedRobotFolder,
   type RobotExportMode,
@@ -25,11 +26,14 @@ type Status =
  */
 export function RobotExportDialog({
   mode,
-  memory = browserRobotFolderMemory,
+  practice = false,
+  memory = practice ? practiceRobotFolderMemory : browserRobotFolderMemory,
   onExport,
   onClose,
 }: {
   mode: RobotExportMode;
+  /** A lesson export: ask for a spare folder and leave the remembered one alone. */
+  practice?: boolean;
   memory?: RobotFolderMemory;
   /** Resolves null when the user cancels the folder picker. */
   onExport(options: {
@@ -126,6 +130,12 @@ export function RobotExportDialog({
                 ? ""
                 : " That folder isn’t a robot project, so you may want to choose another."}
             </p>
+          ) : practice ? (
+            <p>
+              Choose a spare folder for this practice export. BLine saves the
+              practice paths inside it and won’t remember it as your robot
+              project.
+            </p>
           ) : (
             <p>
               Choose your robot project folder. BLine saves this project’s paths
@@ -180,7 +190,9 @@ export function RobotExportDialog({
                   ? "Exporting…"
                   : destination
                     ? "Export"
-                    : "Choose robot project…"}
+                    : practice
+                      ? "Choose folder…"
+                      : "Choose robot project…"}
               </ActionButton>
             </>
           )}

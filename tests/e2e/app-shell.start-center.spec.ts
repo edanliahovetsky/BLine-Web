@@ -129,6 +129,22 @@ test("offers the first lesson beside Create project until a project exists", asy
   await expect(start.getByTestId("start-center-first-lesson")).toHaveCount(0);
 });
 
+test("offers to continue lessons once one is complete", async ({ page }) => {
+  await page.goto("/");
+  const start = page.getByTestId("start-center");
+  await expect(start).toHaveAttribute("aria-busy", "false");
+  await page.evaluate(async () => {
+    const { tourStore }: typeof import("../../src/ui/tours/tourStore") =
+      await import(/* @vite-ignore */ "/src/ui/tours/tourStore.ts" as string);
+    tourStore.getState().hydrateCompleted(["getting-started"]);
+  });
+  const lessons = start.getByTestId("start-center-first-lesson");
+  await expect(lessons).toHaveText("🧭Continue lessons");
+  await lessons.click();
+  await expect(page.getByTestId("tour-picker")).toBeVisible();
+  await expect(page.getByTestId("tour-card")).toHaveCount(0);
+});
+
 test("returns to Home after a guided lesson with an existing project", async ({
   page,
 }) => {

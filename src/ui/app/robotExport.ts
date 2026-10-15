@@ -38,6 +38,19 @@ export interface RobotFolderMemory {
   forget(): Promise<void>;
 }
 
+/**
+ * A lesson's practice export always asks for a folder and never reads or
+ * replaces the remembered robot project, so practice files cannot overwrite
+ * a team's real autos.
+ */
+export const practiceRobotFolderMemory: RobotFolderMemory = {
+  async recall() {
+    return null;
+  },
+  async remember() {},
+  async forget() {},
+};
+
 export type RobotExportResult =
   | {
       mode: "folder";

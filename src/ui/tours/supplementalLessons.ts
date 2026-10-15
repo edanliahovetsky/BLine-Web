@@ -358,7 +358,7 @@ const linkedElementSteps: TourStep[] = [
   },
   {
     title: "Link the next path's Start",
-    task: "Link Score to Pickup’s Start to Score",
+    task: "Link the second path’s Start to Score",
     body: "Switch to Score to Pickup in the path dropdown and select Start. Open Link, choose Choose Existing, pick Score, and click Link Selected.",
     target: "path-breadcrumb",
     visible: ["element-properties", "path-canvas"],
@@ -372,7 +372,7 @@ const linkedElementSteps: TourStep[] = [
     check: () =>
       feedback(
         linkedScoreUses(),
-        "Link Score to Pickup’s Start to Score.",
+        "Switch to the Score to Pickup path, select its Start, and link it to Score.",
         "Both waypoints are linked to Score.",
       ),
   },
@@ -504,7 +504,7 @@ const pathLinkingSteps: TourStep[] = [
   {
     title: "Choose the transition speed",
     task: "Set Min Velocity to 1.5 m/s at End",
-    body: "Click Add constraint and choose Min Velocity. Its new bar starts at the top cell; drag it down to the bottom cell, beside End, and type 1.5.",
+    body: "Click Add constraint and choose Min Velocity. Its new bar starts in the W1 cell; drag it to the W2 cell, which is End, and type 1.5.",
     why: "Min Velocity prevents the robot from slowing to a stop near End, so it carries 1.5 m/s into the next path for a smooth, unbroken transition.",
     target: "inspector-panel",
     visible: ["path-canvas"],
@@ -530,7 +530,7 @@ const pathLinkingSteps: TourStep[] = [
                   constraint.start_ordinal === lastOrdinal() &&
                   constraint.end_ordinal === lastOrdinal(),
               ),
-            "Drag the Min Velocity bar down to the bottom cell, beside End.",
+            "Drag the Min Velocity bar to the W2 cell, which is End.",
             "",
           ),
       },
@@ -777,6 +777,7 @@ const definitions: SupplementalTour[] = [
         body: "Path Defaults sets the handoff mode that new points inherit. A point whose mode you chose keeps it.",
         why: "The geometry buttons show the resolved mode, including a default stored in an imported file. Use the small reset on a selected tile to inherit again. Older projects use Radius.",
         settingsSection: "path-defaults",
+        target: "settings-translation",
         visible: ["settings-dialog"],
         interact: ["settings-dialog"],
         check: () =>

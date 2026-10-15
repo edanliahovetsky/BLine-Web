@@ -99,7 +99,7 @@ async function play(page: Page, observeExtension = false) {
     (window as PixiDebugWindow).__blinePixiDebug?.simulationRobot(),
   );
   expect(robot).toMatchObject({
-    lengthMeters: 0.8,
+    lengthMeters: 0.9,
     widthMeters: 1.2,
     protrusionVisible: false,
   });
@@ -177,8 +177,8 @@ for (const viewport of [
     await expect(dialog).not.toContainText("Use Continue");
     await layout(page);
     await expect(forward(page)).toBeHidden();
+    await number(page, "Robot Length (m)", "0.9");
     await number(page, "Robot Width (m)", "1.2");
-    await number(page, "Robot Length (m)", "0.8");
     await expect(forward(page)).toBeVisible();
     await page.getByTestId("tour-card").getByRole("heading").click();
     await page.keyboard.press("ControlOrMeta+z");
@@ -199,6 +199,7 @@ for (const viewport of [
       dialog.getByLabel("Robot Width (m)", { exact: true }),
     ).toHaveValue("0.8");
     await expect(forward(page)).toBeHidden();
+    await number(page, "Robot Length (m)", "0.9");
     await number(page, "Robot Width (m)", "1.2");
     await next(page, "See the bumper size");
     await expect(dialog).toBeHidden();

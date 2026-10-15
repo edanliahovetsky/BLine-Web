@@ -235,7 +235,7 @@ export const robotSettingsTour: TourDefinition = {
   steps: [
     settings({
       title: "Robot size",
-      body: "Robot Length and Width are the outside bumper dimensions drawn on the field. Set Length to 0.8 m and Width to 1.2 m.",
+      body: "Robot Length and Width are the outside bumper dimensions drawn on the field. Set Length to 0.9 m and Width to 1.2 m.",
       why: "This practice project starts with the default robot, so your own settings are untouched.",
       target: "settings-size",
       settingsSection: "robot",
@@ -246,12 +246,12 @@ export const robotSettingsTour: TourDefinition = {
         simulation: "start",
         closeMenus: true,
       },
-      task: "Set the bumper size to 0.8 × 1.2 m",
+      task: "Set the bumper size to 0.9 × 1.2 m",
       checks: [
         configCheck(
-          "Length 0.8 m",
-          (c) => closeTo(c.gui.robot.length_meters, 0.8),
-          "Type 0.8 in Robot Length.",
+          "Length 0.9 m",
+          (c) => closeTo(c.gui.robot.length_meters, 0.9),
+          "Type 0.9 in Robot Length.",
         ),
         configCheck(
           "Width 1.2 m",
@@ -262,7 +262,7 @@ export const robotSettingsTour: TourDefinition = {
     }),
     canvas({
       title: "See the bumper size",
-      body: "The robot is now wider than it is long. Play the path to watch the 0.8 × 1.2 m footprint move.",
+      body: "The robot is now wider than it is long. Play the path to watch the 0.9 × 1.2 m footprint move.",
       why: "Bumper size helps you judge clearance; it doesn’t change the path’s coordinates.",
       target: "simulation-transport",
       task: "Play the resized robot’s path",
@@ -593,12 +593,24 @@ export const eventTriggerSettingsTour: TourDefinition = {
       visible: ["settings-dialog"],
       interact: ["settings-event-triggers"],
       task: "Register `stopIntake`",
-      check: () =>
-        feedback(
-          config().gui.event_trigger_keys?.includes("stopIntake") ?? false,
-          "Click +, enter stopIntake, then click the checkmark.",
-          "stopIntake is ready to reuse.",
-        ),
+      check: () => {
+        const keys = config().gui.event_trigger_keys ?? [];
+        // A case variant blocks adding the right key, so point at the fix.
+        const variant = keys.find(
+          (key) =>
+            key !== "stopIntake" && key.toLocaleLowerCase() === "stopintake",
+        );
+        return !keys.includes("stopIntake") && variant
+          ? {
+              complete: false,
+              message: `Keys are case-sensitive — you registered "${variant}". Open its ⋯ menu, choose Rename All, and change it to "stopIntake".`,
+            }
+          : feedback(
+              keys.includes("stopIntake"),
+              "Click +, enter stopIntake, then click the checkmark.",
+              "stopIntake is ready to reuse.",
+            );
+      },
     },
     {
       title: "Find a registered key",

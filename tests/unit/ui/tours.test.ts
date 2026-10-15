@@ -38,7 +38,10 @@ import { simulatePathWithTrace } from "../../../src/core/sim";
 import { practiceConfig } from "../../../src/ui/tours/tourScenario";
 import { projectStore } from "../../../src/state/projectStore";
 import { tourStore } from "../../../src/ui/tours/tourStore";
-import { robotSettingsTour } from "../../../src/ui/tours/robotSettingsLesson";
+import {
+  eventTriggerSettingsTour,
+  robotSettingsTour,
+} from "../../../src/ui/tours/robotSettingsLesson";
 
 function loadPractice(path: PathModel) {
   projectStore.setState({
@@ -412,6 +415,22 @@ describe("foundational lesson content", () => {
     expect(assessTourStep(setExtend).message).toBe(
       'Keys are case-sensitive — you typed "StartIntake"; use "startIntake".',
     );
+  });
+
+  it("points a miscapitalized registration at Rename All", () => {
+    const register = eventTriggerSettingsTour.steps.find(
+      (step) => step.title === "Register a Lib Key",
+    )!;
+    loadPractice(createEventLessonPath());
+    const config = projectStore.getState().project!.config;
+    config.gui.event_trigger_keys = ["startIntake", "stopintake"];
+    expect(assessTourStep(register)).toMatchObject({
+      complete: false,
+      message:
+        'Keys are case-sensitive — you registered "stopintake". Open its ⋯ menu, choose Rename All, and change it to "stopIntake".',
+    });
+    config.gui.event_trigger_keys = ["startIntake", "stopIntake"];
+    expect(assessTourStep(register).complete).toBe(true);
   });
 
   it("unlocks demo Continue after Play without requiring the learner to finish the run", () => {

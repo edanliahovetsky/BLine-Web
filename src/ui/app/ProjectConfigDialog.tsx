@@ -17,6 +17,7 @@ import {
   type RefObject,
   useRef,
   useState,
+  type CSSProperties,
   type Dispatch,
   type ReactNode,
   type SetStateAction,
@@ -623,12 +624,18 @@ function FieldSettingsSection({
   return (
     <ConfigSection title="Field">
       <div className="config-dialog__field-layout">
+        {/* A fixed-size frame letterboxes the field, so resizing the field
+            never moves the rows below it. */}
         <div
           className="field-preview"
           data-testid="field-preview"
-          style={{
-            aspectRatio: `${selectedField.geometry.length_meters} / ${selectedField.geometry.width_meters}`,
-          }}
+          style={
+            {
+              "--field-ratio":
+                selectedField.geometry.length_meters /
+                selectedField.geometry.width_meters,
+            } as CSSProperties
+          }
         >
           {selectedField.kind === "grid" ? (
             <div className="field-preview__grid" aria-hidden="true" />

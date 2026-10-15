@@ -1017,7 +1017,7 @@ function EventKeyField({
 }) {
   const inputId = useId();
   return (
-    <div className="property-row">
+    <div className="property-row property-row--event-key">
       <label htmlFor={inputId}>
         <span>Lib Key</span>
       </label>

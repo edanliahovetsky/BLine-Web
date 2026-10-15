@@ -35,8 +35,8 @@ const webSteps: TourStep[] = [
   {
     title: "Export an autos folder",
     task: "Export the practice autos to a spare folder",
-    body: "Choose File → Export to Robot… and pick a spare folder as the robot project. Safari, Firefox, and Brave download autos.zip instead; keep it for the next step.",
-    why: "With your real robot project, the paths land in src/main/deploy/autos, ready to deploy. BLine remembers that folder for next time.",
+    body: "Choose File → Export to Robot… and pick a spare folder, not your robot project. Safari, Firefox, and Brave download autos.zip instead; keep it for the next step.",
+    why: "Outside lessons, Export to Robot saves into your robot project’s src/main/deploy/autos and remembers that folder. This practice export never uses or replaces it.",
     target: "export-menu-entry",
     visible: ["path-canvas", "robot-export-dialog"],
     interact: [...fileMenus, "export-to-robot", "robot-export-dialog"],

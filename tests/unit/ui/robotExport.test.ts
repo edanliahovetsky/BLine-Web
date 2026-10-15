@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ProjectFolderExport } from "../../../src/platform/projectIo";
 import {
   exportToRobot,
+  practiceRobotFolderMemory,
   robotExportMode,
   type RememberedRobotFolder,
   type RobotFolderHandle,
@@ -121,6 +122,26 @@ describe("export to robot", () => {
       },
     });
     expect(picks).toBe(1);
+  });
+
+  it("never reads or replaces the remembered robot project during a lesson", async () => {
+    const robot = robotProject("granted");
+    const spare = new Folder("Spare");
+    const remembered = {
+      handle: robot,
+      pathSegments: ["RobotCode", "src", "main", "deploy", "autos"],
+      robotProject: true,
+    };
+    const memory = memoryWith(remembered);
+    await exportToRobot(autos, {
+      chooseFolder: true,
+      memory: practiceRobotFolderMemory,
+      directoryPicker: async () => spare,
+    });
+    expect(robot.at("src/main/deploy/autos")).toBeUndefined();
+    expect(spare.at("autos/paths")?.files.size).toBe(2);
+    expect(await practiceRobotFolderMemory.recall()).toBeNull();
+    expect(memory.value).toBe(remembered);
   });
 
   it("asks for a folder again when told to or when permission is refused", async () => {

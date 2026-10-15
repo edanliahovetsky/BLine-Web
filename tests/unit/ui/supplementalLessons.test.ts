@@ -311,7 +311,7 @@ describe("supplemental lessons", () => {
       "Run the next path immediately after the first in your robot code",
     );
     expect(lessonCopy).toContain("This preview plays one path at a time");
-    expect(lessonCopy).toContain("drag it down to the bottom cell, beside End");
+    expect(lessonCopy).toContain("drag it to the W2 cell, which is End");
     expect(lessonCopy).toContain("smooth, unbroken transition");
   });
 });

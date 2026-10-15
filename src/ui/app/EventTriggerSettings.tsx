@@ -136,6 +136,8 @@ export function EventTriggerSettings({
                     : undefined
                 }
                 value={editing.value}
+                // Renaming starts from the whole key selected, so typing replaces it.
+                onFocus={(event) => event.currentTarget.select()}
                 onChange={(event) =>
                   setEditing({ ...editing, value: event.currentTarget.value })
                 }

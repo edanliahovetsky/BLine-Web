@@ -19,6 +19,7 @@ export function StartCenter({
   actionError,
   recentWorkspaces,
   supportsProjectFolders,
+  lessonsStarted = false,
   onCreateProject,
   onImportArchive,
   onImportFolder,
@@ -35,6 +36,8 @@ export function StartCenter({
   actionError: string | null;
   recentWorkspaces: readonly ProjectWorkspaceSummary[];
   supportsProjectFolders: boolean;
+  /** At least one lesson is complete, so offer to continue instead of start. */
+  lessonsStarted?: boolean;
   onCreateProject(): void;
   onImportArchive(): void;
   onImportFolder(): void;
@@ -101,7 +104,9 @@ export function StartCenter({
               <span className="start-center__emoji" aria-hidden="true">
                 🧭
               </span>
-              <span>Start the first lesson</span>
+              <span>
+                {lessonsStarted ? "Continue lessons" : "Start the first lesson"}
+              </span>
             </button>
           ) : null}
           <button

@@ -92,7 +92,11 @@ import {
 } from "./ProjectConfigDialog";
 import { writeProjectFolder } from "./projectFolderExport";
 import { filesFromAutosZip } from "./projectFolderZip";
-import { exportToRobot, robotExportMode } from "./robotExport";
+import {
+  exportToRobot,
+  practiceRobotFolderMemory,
+  robotExportMode,
+} from "./robotExport";
 import { RobotExportDialog } from "./RobotExportDialog";
 import { CommandPalette, ShortcutHelpDialog } from "./CommandPalette";
 import { useDialogFocusTrap } from "./useDialogFocusTrap";
@@ -334,6 +338,10 @@ export function AppShell() {
     (state) => state.activeTourId,
   );
   const tourStepIndex = useStoreSelector(tourStore, (state) => state.stepIndex);
+  const lessonsStarted = useStoreSelector(
+    tourStore,
+    (state) => state.completedTourIds.length > 0,
+  );
   const tourAttemptId = useStoreSelector(tourStore, (state) => state.attemptId);
   const activeTour = findTour(activeTourId);
   const activeTourStep = activeTour?.steps[tourStepIndex];
@@ -1473,7 +1481,12 @@ export function AppShell() {
             ? serializeBLineProjectFolder(state.project)
             : await state.exportProjectFolder();
         if (!projectFolder) return null;
-        const result = await exportToRobot(projectFolder, { chooseFolder });
+        const result = await exportToRobot(
+          projectFolder,
+          practice
+            ? { chooseFolder: true, memory: practiceRobotFolderMemory }
+            : { chooseFolder },
+        );
         if (practice && isCurrentPracticeTransfer(practice)) {
           tourStore.getState().recordAction("exportFolder");
         }
@@ -2176,8 +2189,11 @@ export function AppShell() {
   }, []);
   const projectAvailable = Boolean(editorProject);
   const pathAvailable = Boolean(activePath);
-  const projectIoAvailable =
-    Boolean(projectIo) ||
+  const projectIoAvailable = Boolean(projectIo);
+  // The web Import/Export lesson practises autos transfers on its practice
+  // project; every other project command stays off so nothing leaves it.
+  const autosTransferAvailable =
+    projectIoAvailable ||
     (activeTourId === "import-export" && !supportsProjectFolders);
   const navigatorCommand: EditorCommand = {
     id: "project.navigator",
@@ -2202,7 +2218,7 @@ export function AppShell() {
     keywords: ["deploy", "autos", "zip", "download", "save"],
     disabled:
       !projectAvailable ||
-      !projectIoAvailable ||
+      !autosTransferAvailable ||
       supportsProjectFolders ||
       toolbarBusy,
     run: () => setShowRobotExport(true),
@@ -2696,6 +2712,7 @@ export function AppShell() {
           projectSummaries,
           supportsProjectFolders,
           projectIoAvailable,
+          autosTransferAvailable,
           toolbarBusy,
           undoLabel,
           redoLabel,
@@ -2789,6 +2806,7 @@ export function AppShell() {
             actionError={status === "error" ? error : null}
             recentWorkspaces={projectSummaries}
             supportsProjectFolders={supportsProjectFolders}
+            lessonsStarted={lessonsStarted}
             onCreateProject={handleNewProject}
             onImportArchive={() => queueFileImport("archive")}
             onImportFolder={queueFolderImport}
@@ -2810,7 +2828,9 @@ export function AppShell() {
             onOpenSample={() => void handleOpenSample()}
             onOpenLessons={() => setShowTourPicker(true)}
             onStartFirstLesson={() => {
-              if (!startGuidedTour(editorBasicsTourId)) setShowTourPicker(true);
+              // After a lesson, the picker recommends what comes next.
+              if (lessonsStarted || !startGuidedTour(editorBasicsTourId))
+                setShowTourPicker(true);
             }}
             onRetryInitialization={retryInitialization}
           />
@@ -2989,6 +3009,7 @@ export function AppShell() {
       {showRobotExport ? (
         <RobotExportDialog
           mode={robotExportMode()}
+          practice={capturePracticeTransfer() !== null}
           onExport={handleExportToRobot}
           onClose={() => setShowRobotExport(false)}
         />

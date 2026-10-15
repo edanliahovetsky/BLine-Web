@@ -2087,6 +2087,11 @@ select {
   opacity: 1;
 }
 
+/* Keys are monospace and often long; let the field take the spare width. */
+.property-row--event-key {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
 .property-event-key-controls {
   display: flex;
   align-items: flex-start;
@@ -3909,6 +3914,7 @@ select {
   width: 100%;
   aspect-ratio: 2 / 1;
   min-height: 220px;
+  container-type: size;
   overflow: hidden;
   border: 1px solid var(--bline-border-strong);
   border-radius: 6px;
@@ -3995,8 +4001,8 @@ select {
 
 .field-preview__grid,
 .field-preview__empty {
-  width: 100%;
-  height: 100%;
+  width: min(100cqw, 100cqh * var(--field-ratio, 2));
+  aspect-ratio: var(--field-ratio, 2);
 }
 
 .field-preview__grid {

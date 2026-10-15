@@ -118,6 +118,7 @@ import { buildMotionProfile, type MotionProfile } from "./motionProfile";
 import { MotionProfilePanel } from "./MotionProfilePanel";
 import { wheelZoomFactor } from "./wheelZoom";
 import {
+  boundsStageRect,
   clampViewPan,
   fittedCanvasView,
   framedView,
@@ -680,6 +681,47 @@ export function PathStage({
           },
     [baseViewport, panOffset, viewScale, lessonCamera, stageSize],
   );
+  // Lessons place their card clear of the path, so publish where it sits on
+  // the canvas (stage pixels) whenever the view or path changes.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const bounds = pathFramingBounds(
+      activePath?.path,
+      robotSizeFromConfig(durableProject?.config),
+    );
+    if (!bounds) {
+      delete container.dataset.pathRect;
+      delete container.dataset.pathAnchors;
+      return;
+    }
+    const rect = boundsStageRect(bounds, viewport);
+    container.dataset.pathRect = [rect.x, rect.y, rect.width, rect.height]
+      .map(Math.round)
+      .join(",");
+    // The points a learner aims at matter more than the empty box between them.
+    const path = activePath!.path;
+    const anchors = path.path_elements.flatMap((element, index) => {
+      if (!isAnchorElement(element)) return [];
+      const position = getElementPosition(path.path_elements, index);
+      return position ? [position] : [];
+    });
+    if (path.preview?.start_pose) anchors.unshift(path.preview.start_pose);
+    const robot = robotSizeFromConfig(durableProject?.config);
+    container.dataset.pathAnchors = anchors
+      .map((anchor) => {
+        const point = modelToStagePoint(anchor, viewport);
+        return `${Math.round(point.x)},${Math.round(point.y)}`;
+      })
+      .join(";");
+    container.dataset.anchorRadius = String(
+      Math.round(
+        (Math.hypot(robot.lengthMeters, robot.widthMeters) / 2) *
+          viewport.scale,
+      ),
+    );
+  }, [activePath, durableProject, viewport]);
+
   // Keep framed paths clear of the tool rail, view controls and transport.
   const framingInsets = useMemo<StageInsets>(
     () => ({

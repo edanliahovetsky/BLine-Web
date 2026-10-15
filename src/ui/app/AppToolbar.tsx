@@ -39,6 +39,8 @@ interface ToolbarModel {
   projectSummaries: ProjectWorkspaceSummary[];
   supportsProjectFolders: boolean;
   projectIoAvailable: boolean;
+  /** Autos folder and ZIP transfers, also available in the web Import/Export lesson. */
+  autosTransferAvailable: boolean;
   toolbarBusy: boolean;
   undoLabel: string;
   redoLabel: string;
@@ -139,6 +141,7 @@ export function AppToolbar({
     projectSummaries,
     supportsProjectFolders,
     projectIoAvailable,
+    autosTransferAvailable,
     toolbarBusy,
     undoLabel,
     redoLabel,
@@ -199,7 +202,7 @@ export function AppToolbar({
             <MenuAction
               label="Export to Robot..."
               dataTour="export-to-robot"
-              disabled={!project || !projectIoAvailable || toolbarBusy}
+              disabled={!project || !autosTransferAvailable || toolbarBusy}
               onAction={() => {
                 menu.setOpen(null);
                 actions.exportToRobot();
@@ -247,17 +250,17 @@ export function AppToolbar({
               <>
                 <MenuAction
                   label="Import Autos Folder..."
-                  disabled={!projectIoAvailable || toolbarBusy}
+                  disabled={!autosTransferAvailable || toolbarBusy}
                   onAction={actions.importFolder}
                 />
                 <MenuAction
                   label="Import Autos ZIP..."
-                  disabled={!projectIoAvailable || toolbarBusy}
+                  disabled={!autosTransferAvailable || toolbarBusy}
                   onAction={actions.importZip}
                 />
                 <MenuAction
                   label="Export Autos Folder..."
-                  disabled={!project || !projectIoAvailable}
+                  disabled={!project || !autosTransferAvailable}
                   onAction={() => void actions.exportProjectFolder()}
                 />
                 <div className="top-menu__separator" role="separator" />

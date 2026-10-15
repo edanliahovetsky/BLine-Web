@@ -851,7 +851,7 @@ export const rotationTargetsTour: TourDefinition = {
                 (element) =>
                   isRotationTarget(element) && !element.profiled_rotation,
               ),
-              "Clear the Profiled Rotation checkbox.",
+              "Turn the Profiled Rotation switch off.",
               "",
             ),
           ),

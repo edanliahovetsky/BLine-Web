@@ -99,6 +99,8 @@ export function TourOverlay({
   const wantsView = step?.prepare?.view;
 
   const cardRef = useRef<HTMLElement | null>(null);
+  // Where the card last settled, so it moves only when the path needs room.
+  const [placement, setPlacement] = useState<CardPlacement | null>(null);
   const restartLessonButtonRef = useRef<HTMLButtonElement>(null);
   const preparedStepRef = useRef<string | null>(null);
   const capturedStepTokens = useRef(new Set<string>());
@@ -335,6 +337,20 @@ export function TourOverlay({
             : null,
       );
       setVisibleHoles(measureTargets(visibleToken));
+      setPlacement((previous) => {
+        const next = quietCardPosition(
+          stepTarget,
+          cardHeight,
+          previous,
+          stepToken,
+        );
+        return previous &&
+          previous.token === next.token &&
+          previous.spot.left === next.spot.left &&
+          previous.spot.top === next.spot.top
+          ? previous
+          : next;
+      });
       setHoles(
         interactToken && step && !(lockInteractionOnComplete && actionComplete)
           ? [
@@ -369,10 +385,12 @@ export function TourOverlay({
     };
   }, [
     actionComplete,
+    cardHeight,
     interactToken,
     lockInteractionOnComplete,
     step,
     stepTarget,
+    stepToken,
     visibleToken,
     showMeTarget,
   ]);
@@ -482,6 +500,15 @@ export function TourOverlay({
         return;
       }
       if (event.key === "Escape") {
+        // Escape in a text field cancels that edit, not the lesson.
+        if (
+          event.target instanceof Element &&
+          !event.target.closest(".tour-layer") &&
+          event.target.closest(
+            'input:not([type="checkbox"]):not([type="radio"]), textarea, [contenteditable="true"]',
+          )
+        )
+          return;
         // Let an editor popup consume Escape before the lesson sees it.
         if (
           document.querySelector(
@@ -632,17 +659,10 @@ export function TourOverlay({
   const canvas = document
     .querySelector('[data-tour="path-canvas"]')
     ?.getBoundingClientRect();
-  let cardLeft = (canvas?.left ?? 0) + 64;
-  let cardTop = (canvas?.top ?? 40) + 18;
-  const navigator = document
-    .querySelector(
-      '[data-tour="project-navigator"], [data-tour="linked-elements-dialog"]',
-    )
-    ?.getBoundingClientRect();
-  if (navigator) {
-    cardLeft = navigator.right + cardGap;
-    cardTop = 64;
-  }
+  let { left: cardLeft, top: cardTop } =
+    placement?.token === stepToken
+      ? placement.spot
+      : { left: (canvas?.left ?? 0) + 64, top: (canvas?.top ?? 40) + 18 };
   if (
     step.settingsSection ||
     document.querySelector('[data-tour="settings-dialog"]')
@@ -980,6 +1000,200 @@ export function TourOverlay({
     </div>,
     document.body,
   );
+}
+
+interface Box {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+function boxOf(rect: DOMRect | null | undefined): Box | null {
+  return rect && rect.width > 0 && rect.height > 0
+    ? { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }
+    : null;
+}
+
+function overlapArea(a: Box, b: Box): number {
+  const width = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+  const height = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+  return width > 0 && height > 0 ? width * height : 0;
+}
+
+/** Where the canvas says the active path is, in page pixels. */
+function pathBox(canvas: HTMLElement): Box | null {
+  const values = canvas.dataset.pathRect?.split(",").map(Number);
+  if (!values || values.length !== 4 || values.some(Number.isNaN)) return null;
+  const host = (
+    canvas.querySelector(".path-stage__canvas") ?? canvas
+  ).getBoundingClientRect();
+  const [x, y, width, height] = values;
+  const pad = 12;
+  return {
+    left: host.left + x - pad,
+    top: host.top + y - pad,
+    right: host.left + x + width + pad,
+    bottom: host.top + y + height + pad,
+  };
+}
+
+/** The route through the path's waypoints and targets, in page pixels. */
+function pathRoute(canvas: HTMLElement): { x: number; y: number }[] {
+  const host = (
+    canvas.querySelector(".path-stage__canvas") ?? canvas
+  ).getBoundingClientRect();
+  return (canvas.dataset.pathAnchors ?? "")
+    .split(";")
+    .filter(Boolean)
+    .map((pair) => pair.split(",").map(Number))
+    .filter(([x, y]) => !Number.isNaN(x) && !Number.isNaN(y))
+    .map(([x, y]) => ({ x: host.left + x, y: host.top + y }));
+}
+
+/** Points every few pixels along the route, ends included. */
+function routeSamples(route: { x: number; y: number }[], step = 8) {
+  const samples = route.slice(0, 1);
+  for (let index = 1; index < route.length; index += 1) {
+    const from = route[index - 1];
+    const to = route[index];
+    const count = Math.max(
+      1,
+      Math.round(Math.hypot(to.x - from.x, to.y - from.y) / step),
+    );
+    for (let sample = 1; sample <= count; sample += 1)
+      samples.push({
+        x: from.x + ((to.x - from.x) * sample) / count,
+        y: from.y + ((to.y - from.y) * sample) / count,
+      });
+  }
+  return samples;
+}
+
+/**
+ * Place the lesson card where it hides the least of the route the learner is
+ * working on, keeping Start, End, the step's target and the canvas controls
+ * clear where it can. Canvas corners are preferred, and the card stays put
+ * while its spot is no worse than the best, so it does not hop as the view
+ * animates.
+ */
+interface CardPlacement {
+  token: string;
+  spot: { left: number; top: number };
+}
+
+function quietCardPosition(
+  stepTarget: string | null,
+  cardHeight: number,
+  previousPlacement: CardPlacement | null,
+  token: string,
+): CardPlacement {
+  const canvasElement = document.querySelector<HTMLElement>(
+    '[data-tour="path-canvas"]',
+  );
+  const canvas = canvasElement?.getBoundingClientRect();
+  if (!canvasElement || !canvas) return { token, spot: { left: 64, top: 58 } };
+  const dialog = boxOf(
+    document
+      .querySelector('[data-tour="linked-elements-dialog"]')
+      ?.getBoundingClientRect(),
+  );
+  const target =
+    stepTarget && stepTarget !== "path-canvas"
+      ? boxOf(
+          document
+            .querySelector(`[data-tour="${stepTarget}"]`)
+            ?.getBoundingClientRect(),
+        )
+      : null;
+  // The step's target is what the learner must click; controls come next,
+  // and the empty area inside the path's box matters least.
+  const obstacles = [
+    { box: pathBox(canvasElement), weight: 1 },
+    { box: target, weight: 50 },
+    { box: dialog, weight: 5 },
+    ...Array.from(
+      document.querySelectorAll(
+        ".canvas-tool-rail, .canvas-view-controls, .simulation-transport-row",
+      ),
+      (element) => ({ box: boxOf(element.getBoundingClientRect()), weight: 5 }),
+    ),
+  ].filter(
+    (obstacle): obstacle is { box: Box; weight: number } =>
+      obstacle.box !== null,
+  );
+  const minLeft = canvas.left + 64;
+  const maxLeft = Math.max(minLeft, canvas.right - cardWidth - 16);
+  const minTop = canvas.top + 18;
+  const maxTop = Math.max(minTop, canvas.bottom - cardHeight - 72);
+  // Corners first, then a coarse grid between them for tight layouts.
+  const spots = [
+    { left: minLeft, top: minTop },
+    { left: maxLeft, top: canvas.top + 64 },
+    { left: minLeft, top: maxTop },
+    { left: maxLeft, top: maxTop },
+    ...(dialog ? [{ left: dialog.right + cardGap, top: 64 }] : []),
+  ];
+  const corners = spots.length;
+  for (let left = minLeft; left <= maxLeft; left += 48)
+    for (let top = minTop; top <= maxTop; top += 48) spots.push({ left, top });
+  const route = pathRoute(canvasElement);
+  const samples = routeSamples(route);
+  const ends = [route[0], route.at(-1)].filter(Boolean) as {
+    x: number;
+    y: number;
+  }[];
+  const endRadius = Number(canvasElement.dataset.anchorRadius ?? 0);
+  const cost = (spot: { left: number; top: number }, index = 0) => {
+    const card = {
+      left: spot.left,
+      top: spot.top,
+      right: spot.left + cardWidth,
+      bottom: spot.top + cardHeight,
+    };
+    const offscreen =
+      card.left < viewportMargin ||
+      card.top < viewportMargin ||
+      card.right > window.innerWidth - viewportMargin ||
+      card.bottom > window.innerHeight - viewportMargin;
+    const covers = (point: { x: number; y: number }, margin = 0) =>
+      point.x >= card.left - margin &&
+      point.x <= card.right + margin &&
+      point.y >= card.top - margin &&
+      point.y <= card.bottom + margin;
+    // Each hidden sample is about 8 px of route; Start and End orient the
+    // learner, so hiding either costs as much as a long stretch of route.
+    const hiddenRoute = samples.filter((point) => covers(point)).length;
+    const hiddenEnds = ends.filter((point) => covers(point, endRadius)).length;
+    return (
+      (offscreen ? 1e12 : 0) +
+      hiddenRoute * 8_000 +
+      hiddenEnds * 200_000 +
+      // A card floating mid-canvas must earn its place over a corner.
+      (index >= corners ? 40_000 : 0) +
+      obstacles.reduce(
+        (total, { box, weight }) => total + overlapArea(card, box) * weight,
+        0,
+      )
+    );
+  };
+  const costs = spots.map((spot, index) => cost(spot, index));
+  const previous =
+    previousPlacement?.token === token ? previousPlacement.spot : null;
+  let best = 0;
+  costs.forEach((value, index) => {
+    if (value < costs[best]) best = index;
+  });
+  if (previous) {
+    const kept = cost(
+      previous,
+      spots.findIndex(
+        (spot) => spot.left === previous.left && spot.top === previous.top,
+      ),
+    );
+    if (kept <= costs[best]) return { token, spot: previous };
+  }
+  return { token, spot: spots[best] };
 }
 
 /**

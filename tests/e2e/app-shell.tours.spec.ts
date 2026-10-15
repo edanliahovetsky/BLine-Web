@@ -1188,6 +1188,221 @@ test("discards a lesson folder choice after the lesson exits @webkit-canvas", as
   }
 });
 
+test("practice export never touches the remembered robot project", async ({
+  page,
+}) => {
+  // Real folder handles from the origin private file system stand in for the
+  // picker, so the remembered robot project survives in IndexedDB as it would.
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "showDirectoryPicker", {
+      configurable: true,
+      value: async () =>
+        (await navigator.storage.getDirectory()).getDirectoryHandle(
+          localStorage.getItem("bline-test-pick") ?? "robot",
+          { create: true },
+        ),
+    });
+  });
+  await gotoSampleEditor(page);
+  await page.evaluate(async () => {
+    let folder = await (
+      await navigator.storage.getDirectory()
+    ).getDirectoryHandle("robot", { create: true });
+    for (const name of ["src", "main", "deploy"])
+      folder = await folder.getDirectoryHandle(name, { create: true });
+  });
+  const robotProjectFile = () =>
+    page.evaluate(async () => {
+      let folder = await navigator.storage.getDirectory();
+      for (const name of ["robot", "src", "main", "deploy", "autos"])
+        folder = await folder.getDirectoryHandle(name);
+      return (
+        await (await folder.getFileHandle("project.json")).getFile()
+      ).text();
+    });
+  const dialog = page.getByRole("dialog", { name: "Export to robot" });
+  await page.getByRole("button", { name: "File", exact: true }).click();
+  await page
+    .getByRole("menuitem", { name: "Export to Robot...", exact: true })
+    .click();
+  await dialog
+    .getByRole("button", { name: "Choose robot project…", exact: true })
+    .click();
+  await dialog.getByRole("button", { name: "Done", exact: true }).click();
+  const realProject = await robotProjectFile();
+
+  await page.evaluate(() => localStorage.setItem("bline-test-pick", "spare"));
+  await openLesson(page, "Importing and Exporting");
+  await page.getByRole("button", { name: "File", exact: true }).click();
+  await page
+    .getByRole("menuitem", { name: "Export to Robot...", exact: true })
+    .click();
+  await expect(dialog).toContainText("spare folder");
+  await expect(dialog).not.toContainText("deploy/autos");
+  await dialog
+    .getByRole("button", { name: "Choose folder…", exact: true })
+    .click();
+  await dialog.getByRole("button", { name: "Done", exact: true }).click();
+  await expect(page.getByTestId("tour-card")).toContainText("Autos exported.");
+  expect(await robotProjectFile()).toBe(realProject);
+  await exitLesson(page);
+
+  // Outside the lesson the robot project is still the remembered one.
+  await page.getByRole("button", { name: "File", exact: true }).click();
+  await page
+    .getByRole("menuitem", { name: "Export to Robot...", exact: true })
+    .click();
+  await expect(dialog).toContainText("robot/src/main/deploy/autos");
+});
+
+test("keeps project commands off during the web transfer lesson", async ({
+  page,
+}) => {
+  await disableDirectoryPicker(page);
+  await gotoSampleEditor(page);
+  await openLesson(page, "Importing and Exporting");
+  const file = page.getByRole("button", { name: "File", exact: true });
+  const item = (name: string) =>
+    page.getByRole("menuitem", { name, exact: true });
+  await file.click();
+  await expect(item("Home")).toBeDisabled();
+  await expect(item("New Path")).toBeDisabled();
+  await expect(item("Export to Robot...")).toBeEnabled();
+  await item("Workspace").click();
+  await expect(item("New Project")).toBeDisabled();
+  await expect(item("Delete Projects...")).toBeDisabled();
+  await item("Import / Export").click();
+  await expect(item("Import Autos Folder...")).toBeEnabled();
+  await expect(item("Import Autos ZIP...")).toBeEnabled();
+  await expect(item("Import Project Archive...")).toBeDisabled();
+  await expect(item("Import Path...")).toBeDisabled();
+});
+
+test("accepts autos.zip directly in the web transfer lesson", async ({
+  page,
+}) => {
+  await disableDirectoryPicker(page);
+  await gotoSampleEditor(page);
+  await openLesson(page, "Importing and Exporting");
+  await page.getByRole("button", { name: "File", exact: true }).click();
+  await page
+    .getByRole("menuitem", { name: "Export to Robot...", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "Export to robot" });
+  const downloading = page.waitForEvent("download");
+  await dialog
+    .getByRole("button", { name: "Download autos.zip", exact: true })
+    .click();
+  const zip = await (await downloading).path();
+  await dialog.getByRole("button", { name: "Done", exact: true }).click();
+  await advance(page);
+  await heading(page, "Import the autos folder");
+  await page.getByRole("button", { name: "File", exact: true }).click();
+  await page
+    .getByRole("menuitem", { name: "Import / Export", exact: true })
+    .click();
+  const choosing = page.waitForEvent("filechooser");
+  await page
+    .getByRole("menuitem", { name: "Import Autos ZIP...", exact: true })
+    .click();
+  await (await choosing).setFiles(zip!);
+  await advance(page);
+  await heading(page, "Check the imported paths");
+});
+
+test("keeps the lesson card off the tool rail and most of the route", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await gotoSampleEditor(page);
+  await openLesson(page, "Event triggers");
+  const placement = () =>
+    page.evaluate(() => {
+      const card = document
+        .querySelector('[data-testid="tour-card"]')!
+        .getBoundingClientRect();
+      const canvas = document.querySelector<HTMLElement>(
+        '[data-tour="path-canvas"]',
+      )!;
+      const host = canvas
+        .querySelector(".path-stage__canvas")!
+        .getBoundingClientRect();
+      const route = canvas.dataset
+        .pathAnchors!.split(";")
+        .map((pair) => pair.split(",").map(Number))
+        .map(([x, y]) => ({ x: host.left + x, y: host.top + y }));
+      let hidden = 0;
+      let total = 0;
+      for (let index = 1; index < route.length; index += 1) {
+        const from = route[index - 1];
+        const to = route[index];
+        for (let step = 0; step <= 50; step += 1) {
+          const x = from.x + ((to.x - from.x) * step) / 50;
+          const y = from.y + ((to.y - from.y) * step) / 50;
+          total += 1;
+          if (
+            x >= card.left &&
+            x <= card.right &&
+            y >= card.top &&
+            y <= card.bottom
+          )
+            hidden += 1;
+        }
+      }
+      const rail = document
+        .querySelector(".canvas-tool-rail")!
+        .getBoundingClientRect();
+      return {
+        mostlyVisible: hidden / total < 0.25,
+        railClear:
+          rail.right <= card.left ||
+          rail.left >= card.right ||
+          rail.bottom <= card.top ||
+          rail.top >= card.bottom,
+      };
+    });
+  await expect
+    .poll(placement)
+    .toEqual({ mostlyVisible: true, railClear: true });
+  await page
+    .getByTestId("tour-card")
+    .getByRole("button", { name: "Restart lesson", exact: true })
+    .waitFor();
+  // The checklist step's taller card still leaves the route visible.
+  await page.evaluate(async () => {
+    const { tourStore }: typeof import("../../src/ui/tours/tourStore") =
+      await import(/* @vite-ignore */ "/src/ui/tours/tourStore.ts" as string);
+    const state = tourStore.getState();
+    state.next(4);
+    state.next(4);
+  });
+  await heading(page, "Add an event on the next segment");
+  await expect
+    .poll(placement)
+    .toEqual({ mostlyVisible: true, railClear: true });
+});
+
+test("Escape in a lesson text field cancels the edit, not the lesson", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  await openLesson(page, "Event Triggers");
+  await page.locator('[data-tour="settings-nav-event-triggers"]').click();
+  await advance(page);
+  await heading(page, "Register a Lib Key");
+  await page
+    .locator('[data-tour="settings-event-triggers"]')
+    .getByRole("button", { name: /add/i })
+    .first()
+    .click();
+  const field = page.getByLabel("New Lib Key", { exact: true });
+  await field.fill("stop");
+  await field.press("Escape");
+  await expect(field).toHaveCount(0);
+  await expect(page.getByTestId("tour-leave-confirmation")).toHaveCount(0);
+  await heading(page, "Register a Lib Key");
+});
+
 test("uses desktop folder menus and direct-saving guidance in the desktop lesson", async ({
   page,
 }) => {
