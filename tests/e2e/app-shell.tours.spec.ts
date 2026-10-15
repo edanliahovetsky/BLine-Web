@@ -254,7 +254,7 @@ test("walks Handoff Modes to completion with a guided Radius and Progress compar
   await heading(page, "Choose an inherited default");
   const settings = page.getByRole("dialog", { name: "Edit Config" });
   await expect(settings).toBeVisible();
-  await selectDropdownOption(page, "Default Handoff Mode", "progress");
+  await selectDropdownOption(page, "Default Handoff Mode", "Progress");
   await expect(card).toContainText("New handoffs will use Progress.");
   await card.getByRole("button", { name: "Finish", exact: true }).click();
   const recap = page.getByTestId("tour-recap");
@@ -461,7 +461,44 @@ for (const [width, height] of [
         await playAndInspect(page);
       }
       await advance(page);
+      await heading(page, "Fix a mistake");
+      const card = page.getByTestId("tour-card");
+      await expect(card.getByLabel("Keys").locator("kbd")).toHaveText([
+        "Delete",
+        "Backspace",
+        "⌘Z",
+        "Ctrl+Z",
+      ]);
+      const fixes = card
+        .getByRole("list", { name: "Requirements" })
+        .locator("li");
+      await place(page, "Translation", 10, 4.5);
+      await expect(fixes.nth(0)).toHaveAttribute("data-complete", "true");
+      await expect(advanceButton(page)).toHaveCount(0);
+      if (width === 1600) {
+        // The row's remove button works under the lesson shield.
+        await page
+          .getByRole("button", { name: "Remove Translation 2", exact: true })
+          .click();
+      } else {
+        await card.focus();
+        await page.keyboard.press("ControlOrMeta+z");
+      }
+      await expect
+        .poll(async () => (await practice(page)).path.path_elements.length)
+        .toBe(2);
+      await expect(fixes.nth(1)).toHaveAttribute("data-complete", "true");
+      await advance(page);
       await heading(page, "Route around the obstacle");
+      await expect(card).toContainText("Delete or ⌘Z removes any extra point");
+      // A misplaced extra point can be deleted with the keyboard mid-exercise.
+      await place(page, "Translation", 7, 3);
+      await page.getByTestId("path-element-row-1").click();
+      await page.keyboard.press("Delete");
+      await expect
+        .poll(async () => (await practice(page)).path.path_elements.length)
+        .toBe(2);
+      await page.getByTestId("path-element-row-0").click();
       await place(page, "Translation", 10, 4.5);
       await expect(advanceButton(page)).toHaveCount(0);
       await expect(page.getByTestId("tour-card")).toContainText("Bumpers");

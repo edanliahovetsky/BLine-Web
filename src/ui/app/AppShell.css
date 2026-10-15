@@ -5170,6 +5170,24 @@ select {
   border-style: dashed;
 }
 
+.tour-card__keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.tour-card__keys kbd {
+  padding: 1px 6px;
+  border: 1px solid var(--bline-border-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  color: var(--bline-text-secondary);
+  background: var(--bline-surface-base);
+  font-family: inherit;
+  font-size: 0.75rem;
+}
+
 .tour-card__checklist {
   display: grid;
   gap: 6px;

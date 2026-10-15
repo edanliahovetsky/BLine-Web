@@ -109,6 +109,8 @@ export interface TourStep {
    * canvas segment named by `segment`.
    */
   showMe?: readonly string[];
+  /** Keys worth showing as key caps on the card. */
+  keys?: readonly string[];
   /** Element indexes bounding the path segment `lesson-segment` outlines. */
   segment?(path: PathModel): readonly [number, number] | null;
   /**

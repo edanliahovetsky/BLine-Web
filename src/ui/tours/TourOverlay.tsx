@@ -837,6 +837,13 @@ export function TourOverlay({
             <p className="tour-card__body">
               <LessonText text={step.body} />
             </p>
+            {step.keys?.length ? (
+              <div className="tour-card__keys" aria-label="Keys">
+                {step.keys.map((key) => (
+                  <kbd key={key}>{key}</kbd>
+                ))}
+              </div>
+            ) : null}
             {items ? (
               <TourChecklist items={items} reviewing={isReviewing} />
             ) : step.check ? (

@@ -35,7 +35,7 @@ const webSteps: TourStep[] = [
   {
     title: "Export an autos folder",
     task: "Export the practice autos folder",
-    body: "Open File → Import / Export and choose Export Autos Folder. Save it in a spare folder; if your browser downloads autos.zip instead, unzip it.",
+    body: "Open File → Import / Export and choose Export Autos Folder. Save it in a spare folder; if your browser downloads autos.zip instead, keep the ZIP.",
     target: "export-menu-entry",
     visible: ["path-canvas"],
     interact: fileMenus,
@@ -51,10 +51,10 @@ const webSteps: TourStep[] = [
   {
     title: "Import the autos folder",
     task: "Import the autos folder you saved",
-    body: "Choose File → Import / Export → Import Autos Folder and pick the folder you just saved. It holds config.json, a paths folder, and project.json.",
+    body: "Choose File → Import / Export → Import Autos Folder and pick the folder you saved, or Import Autos ZIP for autos.zip. Either holds config.json, paths, and project.json.",
     why: "This lesson imports into its practice project, so your own work is untouched.",
     target: "export-menu-entry",
-    interact: [...fileMenus, "lesson-import-folder"],
+    interact: [...fileMenus, "lesson-import-folder", "lesson-import-zip"],
     check: () => {
       const failure = currentPracticeTransferError();
       return failure && !hasAction("importFolder")
@@ -64,7 +64,7 @@ const webSteps: TourStep[] = [
           }
         : feedback(
             hasAction("importFolder"),
-            "Select the autos folder, not its ZIP file or an individual path.",
+            "Select the autos folder or autos.zip you exported, not a single path.",
             "Autos folder imported.",
           );
     },

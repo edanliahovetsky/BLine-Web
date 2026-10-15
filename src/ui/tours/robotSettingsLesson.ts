@@ -281,11 +281,11 @@ export const robotSettingsTour: TourDefinition = {
     }),
     settings({
       title: "Set up the extension",
-      body: "Set Distance to 0.3 m and Side to front, then choose hidden for Default Protrusion State so the intake starts retracted.",
+      body: "Set Distance to 0.3 m and Side to Front, then choose Hidden for Default Protrusion State so the intake starts retracted.",
       why: "Distance is how far the mechanism reaches past the bumpers; Side is the robot edge it extends from.",
       target: "settings-protrusions",
       settingsSection: "robot",
-      task: "Set 0.3 m, front, and hidden",
+      task: "Set 0.3 m, Front, and Hidden",
       checks: [
         configCheck(
           "Distance 0.3 m",
@@ -293,14 +293,14 @@ export const robotSettingsTour: TourDefinition = {
           "Type 0.3 in Distance.",
         ),
         configCheck(
-          "Side: front",
+          "Side: Front",
           (c) => c.gui.protrusions.side === "front",
-          "Choose front in Side.",
+          "Choose Front in Side.",
         ),
         configCheck(
-          "Starts hidden",
+          "Starts Hidden",
           (c) => c.gui.protrusions.default_state === "hidden",
-          "Choose hidden in Default Protrusion State.",
+          "Choose Hidden in Default Protrusion State.",
         ),
       ],
     }),

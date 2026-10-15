@@ -222,6 +222,28 @@ const headingChanged = (path: PathModel) =>
       ) > 0.01
     );
   });
+const elementCount = () => currentPath()?.path_elements.length ?? 0;
+/** Latched per step attempt: an extra element appeared, then went away. */
+const extraPoint = (() => {
+  let token = "";
+  let added = false;
+  let removed = false;
+  return () => {
+    const state = tourStore.getState();
+    const current = `${state.activeTourId}:${state.attemptId}:${state.stepIndex}`;
+    if (current !== token) {
+      token = current;
+      added = false;
+      removed = false;
+    }
+    const baseline = baselinePath?.path_elements.length ?? 0;
+    if (elementCount() > baseline) added = true;
+    if (added && elementCount() <= baseline) removed = true;
+    return { added, removed };
+  };
+})();
+const extraPointAdded = () => extraPoint().added;
+const extraPointRemoved = () => extraPoint().removed;
 const played = {
   label: "Played the path",
   check: action("play", "Press Play.", ""),
@@ -438,9 +460,44 @@ export const fundamentalsTour: TourDefinition = {
       ],
     },
     {
+      title: "Fix a mistake",
+      task: "Add an extra point, then remove it",
+      body: "Choose Translation and click the path to add a point. Then remove it: select it and press Delete, click its row’s remove button, or press ⌘Z.",
+      why: "Placing returns you to Select, so a stray click won’t add more points. Undo (⌘Z or Ctrl+Z) reverses any edit, including a deletion.",
+      target: "tool-translation",
+      visible: ["path-canvas", "simulation-transport"],
+      interact: [...elementExploration, "tool-translation"],
+      showMe: ["tool-translation", "inspector-panel"],
+      keys: ["Delete", "Backspace", "⌘Z", "Ctrl+Z"],
+      prepare: { ...properties(0), simulation: "start" },
+      phase: "Build",
+      checks: [
+        {
+          label: "Extra point added",
+          check: () =>
+            feedback(
+              extraPointAdded(),
+              "Choose Translation, then click the line between Start and End.",
+              "",
+            ),
+        },
+        {
+          label: "Extra point removed",
+          check: () =>
+            feedback(
+              extraPointRemoved(),
+              "Select it and press Delete, use its row’s remove button, or press ⌘Z.",
+              "",
+            ),
+        },
+      ],
+    },
+    {
       title: "Route around the obstacle",
       task: "Add a translation target that clears the obstacle",
-      body: "A translation target sets where the robot goes without fixing its heading. Add one between Start and End, then drag it until the preview clears the obstacle.",
+      body: "Add a translation target between Start and End, then drag it until the preview clears the obstacle. Delete or ⌘Z removes any extra point.",
+      why: "A translation target sets where the robot goes without fixing its heading. Select is the tool for moving and deleting points.",
+      keys: ["Delete", "⌘Z"],
       target: "tool-translation",
       visible: ["path-canvas", "simulation-transport"],
       interact: [...elementExploration, "tool-translation"],
@@ -474,7 +531,9 @@ export const fundamentalsTour: TourDefinition = {
     },
     {
       title: "Try more route points",
-      body: "Add two or three more points around the obstacle and press Play. Use waypoints only where the heading matters; simpler paths are easier to tune.",
+      body: "Add two or three more points around the obstacle and press Play. Use Select to move points; Delete or ⌘Z removes extras.",
+      why: "Use waypoints only where the heading matters. Simpler paths are easier to tune.",
+      keys: ["Delete", "⌘Z"],
       target: "path-canvas",
       visible: ["tool-rail", "simulation-transport"],
       interact: routeExploration,
