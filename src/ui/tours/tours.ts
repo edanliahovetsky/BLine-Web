@@ -410,7 +410,8 @@ export const fundamentalsTour: TourDefinition = {
           label: "Waypoint in Start",
           check: outcome((path) =>
             feedback(
-              isWaypoint(path.path_elements[0]) &&
+              path.path_elements.length > 0 &&
+                isWaypoint(path.path_elements[0]) &&
                 near(anchorPositions(path)[0], mission.start),
               path.path_elements.length
                 ? "Drag the first waypoint into the Start zone."

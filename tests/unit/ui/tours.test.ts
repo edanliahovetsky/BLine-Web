@@ -21,6 +21,7 @@ import {
 } from "../../../src/ui/tours/courseScenarios";
 import {
   createEventTrigger,
+  createPathModel,
   isEventTrigger,
   isRotationTarget,
   isTranslationTarget,
@@ -149,6 +150,11 @@ describe("foundational lesson content", () => {
       (step) => step.title === "Place Start and End",
     )!;
     expect(placement.prepare?.practicePath?.().path_elements).toHaveLength(0);
+    loadPractice(createPathModel());
+    expect(assessTourStep(placement).items?.[0]).toMatchObject({
+      complete: false,
+      hint: "Choose Waypoint, then click inside Start.",
+    });
     const explore = fundamentals.steps.find(
       (step) => step.title === "Try more route points",
     )!;
