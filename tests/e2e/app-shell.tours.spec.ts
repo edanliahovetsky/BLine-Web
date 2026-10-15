@@ -1276,6 +1276,11 @@ test("keeps project commands off during the web transfer lesson", async ({
   await expect(item("Import Autos ZIP...")).toBeEnabled();
   await expect(item("Import Project Archive...")).toBeDisabled();
   await expect(item("Import Path...")).toBeDisabled();
+  await item("Recent Projects").click();
+  for (const recent of await page
+    .locator('[data-testid="top-menu-project-recent"] .top-menu__project')
+    .all())
+    await expect(recent).toBeDisabled();
 });
 
 test("accepts autos.zip directly in the web transfer lesson", async ({

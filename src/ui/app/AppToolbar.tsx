@@ -318,6 +318,7 @@ export function AppToolbar({
                   : "(No saved projects)"
               }
               workspaces={projectSummaries}
+              disabled={!projectIoAvailable || toolbarBusy}
               onOpen={
                 supportsProjectFolders
                   ? actions.switchWorkspace
@@ -696,10 +697,13 @@ export function PathHealthPopover({
 function WorkspaceMenuList({
   workspaces,
   emptyLabel,
+  disabled,
   onOpen,
 }: {
   workspaces: ProjectWorkspaceSummary[];
   emptyLabel: string;
+  /** Lessons work on a practice project; opening another would replace it. */
+  disabled: boolean;
   onOpen(id: string): Promise<void>;
 }) {
   if (workspaces.length === 0) {
@@ -715,6 +719,7 @@ function WorkspaceMenuList({
           role="menuitem"
           className="top-menu__item top-menu__project"
           title={summary.directoryPath}
+          disabled={disabled}
           onClick={() => void onOpen(summary.id)}
         >
           <span className="top-menu__item-label">{summary.displayName}</span>
