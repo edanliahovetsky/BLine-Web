@@ -5129,6 +5129,11 @@ select {
   font-size: 0.8125rem;
 }
 
+/* A card the learner placed follows the pointer without easing. */
+.tour-card.is-moved {
+  transition: none;
+}
+
 .tour-card.is-collapsed h4.tour-card__headline {
   margin: 0;
 }

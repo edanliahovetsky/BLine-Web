@@ -102,6 +102,33 @@ test("stays Home when creation is canceled and opens new or recent projects", as
   await expect(page.getByTestId("path-stage")).toBeVisible();
 });
 
+test("offers the first lesson beside Create project until a project exists", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const start = page.getByTestId("start-center");
+  await expect(start).toHaveAttribute("aria-busy", "false");
+  const first = start.getByTestId("start-center-first-lesson");
+  await expect(first).toHaveText("🧭Start the first lesson");
+  const create = await requiredBox(
+    start.getByRole("button", { name: "Create project", exact: true }),
+  );
+  const lesson = await requiredBox(first);
+  expect(Math.abs(lesson.y - create.y)).toBeLessThan(2);
+  expect(lesson.x).toBeGreaterThan(create.x);
+  await first.click();
+  await expect(page.getByTestId("tour-card")).toHaveAttribute(
+    "data-step-title",
+    "The editor at a glance",
+  );
+  await expect(page.getByTestId("tour-picker")).toHaveCount(0);
+
+  await gotoSampleEditor(page);
+  await page.getByRole("button", { name: "File", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Home", exact: true }).click();
+  await expect(start.getByTestId("start-center-first-lesson")).toHaveCount(0);
+});
+
 test("returns to Home after a guided lesson with an existing project", async ({
   page,
 }) => {
@@ -117,6 +144,10 @@ test("returns to Home after a guided lesson with an existing project", async ({
   await expect(page.getByTestId("tour-card")).toBeVisible();
   await expect(start).toHaveCount(0);
   await page.keyboard.press("Escape");
+  await page
+    .getByTestId("tour-leave-confirmation")
+    .getByRole("button", { name: "Leave lesson", exact: true })
+    .click();
   await expect(start).toBeVisible();
   await start.getByRole("button").filter({ hasText: projectName }).click();
   await expect(page.getByTestId("current-path-status")).toContainText(

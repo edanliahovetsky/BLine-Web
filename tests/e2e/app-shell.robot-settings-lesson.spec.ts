@@ -38,23 +38,17 @@ async function openLesson(
 ) {
   await page.getByRole("button", { name: "Help and tutorials" }).click();
   await page.getByTestId("start-guided-tour").click();
-  const group = page.getByTestId("tour-picker-settings");
-  if ((await group.getAttribute("aria-expanded")) !== "true")
-    await group.click();
   await page.getByTestId(`tour-picker-${id}`).click();
-  await expect(page.getByTestId("tour-card").getByRole("heading")).toHaveText(
+  await expect(page.getByTestId("tour-card")).toHaveAttribute(
+    "data-step-title",
     title,
   );
 }
 async function next(page: Page, heading: string) {
   const card = page.getByTestId("tour-card");
   await card.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(
-    card.getByRole("heading", { name: heading, exact: true }),
-  ).toBeVisible();
-  await expect(
-    card.getByRole("heading", { name: heading, exact: true }),
-  ).toBeInViewport();
+  await expect(card).toHaveAttribute("data-step-title", heading);
+  await expect(card.getByTestId("tour-headline")).toBeInViewport();
 }
 async function layout(page: Page) {
   // Canvas-to-settings steps animate the coach into its new position.
@@ -250,13 +244,17 @@ for (const viewport of [
     const card = page.getByTestId("tour-card");
     expect((await snapshot(page)).preferences).toEqual(original.preferences);
     await card.getByRole("button", { name: "Finish", exact: true }).click();
+    await page
+      .getByTestId("tour-recap")
+      .getByRole("button", { name: "All lessons", exact: true })
+      .click();
     await expect(dialog).toBeHidden();
     await expect(page.getByTestId("tour-picker-robot-settings")).toHaveClass(
       /is-done/,
     );
-    await expect(page.getByTestId("tour-picker-settings")).toContainText(
-      "1 / 5 complete",
-    );
+    await expect(
+      page.getByTestId("tour-picker-section-settings"),
+    ).toContainText("1 / 5");
     const restored = await snapshot(page);
     expect(restored.project).toEqual(original.project);
     expect(restored.preferences).toEqual(original.preferences);
@@ -403,6 +401,10 @@ for (const viewport of [
       await layout(page);
       const card = page.getByTestId("tour-card");
       await card.getByRole("button", { name: "Finish", exact: true }).click();
+      await page
+        .getByTestId("tour-recap")
+        .getByRole("button", { name: "All lessons", exact: true })
+        .click();
       await expect(dialog).toBeHidden();
       const restored = await snapshot(page);
       expect(restored.project).toEqual(original.project);
@@ -412,9 +414,9 @@ for (const viewport of [
       await expect(page.getByTestId(`tour-picker-${section.id}`)).toHaveClass(
         /is-done/,
       );
-      await expect(page.getByTestId("tour-picker-settings")).toContainText(
-        "1 / 5 complete",
-      );
+      await expect(
+        page.getByTestId("tour-picker-section-settings"),
+      ).toContainText("1 / 5");
       if (section.id === "settings-event-triggers")
         await page.screenshot({
           path: testInfo.outputPath("settings-sublessons.png"),
@@ -436,9 +438,13 @@ for (const exit of ["skip", "escape"] as const) {
     if (exit === "skip")
       await page
         .getByTestId("tour-card")
-        .getByRole("button", { name: "Skip lesson", exact: true })
+        .getByRole("button", { name: "Leave lesson", exact: true })
         .click();
     else await page.keyboard.press("Escape");
+    await page
+      .getByTestId("tour-leave-confirmation")
+      .getByRole("button", { name: "Leave lesson", exact: true })
+      .click();
     await expect(dialogFor(page)).toBeHidden();
     expect((await snapshot(page)).project).toEqual(original.project);
     expect((await snapshot(page)).preferences).toEqual(original.preferences);

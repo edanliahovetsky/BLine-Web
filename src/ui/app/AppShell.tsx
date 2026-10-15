@@ -3468,8 +3468,8 @@ function TourPickerDialog({
                 aria-labelledby={`tour-section-${section.id}`}
                 data-testid={`tour-picker-section-${section.id}`}
               >
-                <h3 id={`tour-section-${section.id}`}>
-                  <span>{section.title}</span>
+                <h3>
+                  <span id={`tour-section-${section.id}`}>{section.title}</span>
                   <small>
                     {done === section.lessons.length ? (
                       <Check size={12} aria-hidden="true" />

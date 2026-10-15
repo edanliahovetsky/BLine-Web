@@ -25,23 +25,37 @@ import {
   dismissMobileSupportWarning,
   gotoSampleEditor,
   requiredBox,
+  selectDropdownOption,
 } from "./support/app-shell-shared";
 
-const lessonTitles = [
-  "Getting Started",
-  "BLine Fundamentals",
-  "Path Tuning",
-  "Rotation targets",
-  "Event triggers",
-  "Settings",
-  "Importing and Exporting",
-  "Path Management",
-  "How to use BLine offline",
-  "Advanced — Current-pose Starts",
-  "Advanced — Handoff Modes",
-  "Advanced — Linked Elements",
-  "Advanced — Path Linking",
-];
+const lessonSections = [
+  [
+    "Core",
+    [
+      "Getting Started",
+      "BLine Fundamentals",
+      "Event triggers",
+      "Importing and Exporting",
+    ],
+  ],
+  [
+    "Settings",
+    ["Robot", "Path Defaults", "Field", "Generator", "Event Triggers"],
+  ],
+  [
+    "Advanced",
+    [
+      "Path Tuning",
+      "Rotation targets",
+      "Path Management",
+      "How to use BLine offline",
+      "Current-pose Starts",
+      "Handoff Modes",
+      "Linked Elements",
+      "Path Linking",
+    ],
+  ],
+] as const;
 
 test("starts a linked lesson on a fresh browser and consumes only its URL parameter @webkit-canvas", async ({
   page,
@@ -108,34 +122,20 @@ test("opens help and all lessons, including offline guidance before advanced les
   await expect(hub.getByRole("link", { name: /Documentation/ })).toBeVisible();
   await hub.getByRole("button", { name: "Lessons", exact: true }).click();
   const picker = page.getByTestId("tour-picker");
-  for (const title of lessonTitles) {
-    await expect(picker.getByText(title, { exact: true })).toBeVisible();
-  }
-  await expect(picker.locator(".tour-picker__copy > strong")).toHaveText(
-    lessonTitles,
-  );
   await expect(picker).toHaveAttribute("aria-label", "Lessons");
   await expect(picker.locator(".tour-picker__header")).toHaveText("🧭 Lessons");
-  const settings = picker.getByTestId("tour-picker-settings");
-  await expect(settings).toHaveAttribute("aria-expanded", "false");
-  await settings.focus();
-  await settings.press("Enter");
-  await expect(settings).toHaveAttribute("aria-expanded", "true");
-  await expect(
-    picker.getByRole("group", { name: "Settings lessons" }).locator("strong"),
-  ).toHaveText([
-    "Robot",
-    "Path Defaults",
-    "Field",
-    "Generator",
-    "Event Triggers",
-  ]);
+  for (const [section, titles] of lessonSections) {
+    const group = picker.getByRole("region", { name: section, exact: true });
+    await expect(group.getByRole("heading")).toContainText(
+      new RegExp(`^${section}\\s*0 / ${titles.length} · \\d+ min$`),
+    );
+    await expect(group.locator(".tour-picker__copy > strong")).toHaveText([
+      ...titles,
+    ]);
+  }
+  await expect(picker.locator(".tour-picker__badge").first()).toHaveText("1");
+  await expect(picker.getByText("Recommended first")).toHaveCount(1);
   await expect(page.getByTestId("tour-card")).toHaveCount(0);
-  await settings.press("Space");
-  await expect(settings).toHaveAttribute("aria-expanded", "false");
-  await expect(
-    picker.getByRole("group", { name: "Settings lessons" }),
-  ).toHaveCount(0);
 });
 
 test("keeps the course reachable in a short window", async ({ page }) => {
@@ -147,30 +147,184 @@ test("keeps the course reachable in a short window", async ({ page }) => {
   const box = await requiredBox(picker);
   expect(box.y).toBeGreaterThanOrEqual(0);
   expect(box.y + box.height).toBeLessThanOrEqual(600);
-  await picker.getByText("Advanced — Path Linking", { exact: true }).click();
+  await picker.getByText("Path Linking", { exact: true }).click();
   await auditLayout(page);
 });
 
-test("keeps lesson actions and dialogue visible on hover", async ({ page }) => {
-  await page.clock.install();
-  await page.setViewportSize({ width: 1600, height: 900 });
+test("asks before leaving and offers to resume where the learner left", async ({
+  page,
+}) => {
   await gotoSampleEditor(page);
   await openLesson(page, "Getting Started");
   const card = page.getByTestId("tour-card");
-  const skip = card.getByRole("button", { name: "Skip lesson" });
-  await expect(skip).toHaveCSS("border-top-style", "solid");
-  await expect(skip).not.toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
-  await skip.hover();
+  await expect(card.getByRole("button", { name: "Skip lesson" })).toHaveCount(
+    0,
+  );
+  await advance(page);
+  await heading(page, "Sidebar");
+  await expect(page.getByTestId("tour-step-count")).toHaveText("2 / 5");
+
+  // Escape and × both ask; Keep going returns to the same step.
+  await card.focus();
+  await page.keyboard.press("Escape");
+  const confirm = page.getByTestId("tour-leave-confirmation");
+  await expect(confirm).toContainText("resume at step 2");
+  await confirm.getByRole("button", { name: "Keep going" }).click();
+  await expect(confirm).toHaveCount(0);
+  await heading(page, "Sidebar");
+  await card.getByRole("button", { name: "Leave lesson" }).click();
+  await confirm.getByRole("button", { name: "Leave lesson" }).click();
+  await expect(card).toHaveCount(0);
+  await expect(page.getByTestId("path-stage")).toBeVisible();
+
+  await page.getByRole("button", { name: "Help and tutorials" }).click();
+  await page.getByTestId("start-guided-tour").click();
+  const picker = page.getByTestId("tour-picker");
+  await expect(picker.getByTestId("tour-picker-resume-banner")).toContainText(
+    "Left at step 2 of 5",
+  );
+  await expect(picker.getByTestId("tour-picker-getting-started")).toContainText(
+    "Resume at step 2",
+  );
+  await picker.getByTestId("tour-picker-resume").click();
+  await heading(page, "Sidebar");
+  await exitLesson(page);
+  await page.getByRole("button", { name: "Help and tutorials" }).click();
+  await page.getByTestId("start-guided-tour").click();
+  await picker.getByTestId("tour-picker-start-over").click();
+  await heading(page, "The editor at a glance");
+  await page.reload();
+  await page.getByRole("button", { name: "Help and tutorials" }).click();
+  await page.getByTestId("start-guided-tour").click();
+  await expect(picker.getByTestId("tour-picker-resume-banner")).toHaveCount(0);
+});
+
+test("walks Handoff Modes to completion with a guided Radius and Progress comparison @webkit-canvas", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/?lesson=handoff-modes");
+  const card = page.getByTestId("tour-card");
+  await heading(page, "Two ways to reach a handoff");
+  // The gate is explained only once Progress exists.
+  await expect(card).not.toContainText("gate");
+  await advance(page);
+
+  await heading(page, "Change one point");
+  await expect(page.getByTestId("tour-headline")).toHaveText(
+    /^○\s*Set the middle handoff to Progress$/,
+  );
+  await expect(card).toContainText("lower 0.45 m chip");
+  await expect(advanceButton(page)).toHaveCount(0);
+  await page.getByTestId("tour-show-me").click();
+  await expect(page.getByTestId("tour-spotlight")).toHaveAttribute(
+    "data-show-me",
+    "max-velocity-card",
+  );
+  await page.getByTestId("handoff-radius-chip-1").click();
+  const modes = page.getByRole("group", {
+    name: "Handoff mode 2",
+    exact: true,
+  });
+  await modes.getByRole("button", { name: "Progress", exact: true }).click();
+  await expect(card).toContainText("The middle point now uses Progress.");
+  await advance(page);
+
+  await heading(page, "The progress gate");
+  await expect(card).toContainText("purple dashed line");
+  await advance(page);
+
+  await heading(page, "Try both on a corner");
+  const items = card.getByRole("list", { name: "Requirements" }).locator("li");
+  await expect(items).toHaveCount(3);
+  await expect(items.locator("[data-complete=true]")).toHaveCount(0);
+  await expect(card.locator("li[data-complete=true]")).toHaveCount(0);
+  await playAndInspect(page);
+  await expect(items.nth(0)).toHaveAttribute("data-complete", "true");
+  await expect(advanceButton(page)).toHaveCount(0);
+  await page.getByTestId("handoff-radius-chip-1").click();
+  await modes.getByRole("button", { name: "Radius", exact: true }).click();
+  await expect(items.nth(1)).toHaveAttribute("data-complete", "true");
+  await expect(items.nth(2)).toHaveAttribute("data-complete", "false");
+  await playAndInspect(page);
+  await expect(items.nth(2)).toHaveAttribute("data-complete", "true");
+  await advance(page);
+
+  await heading(page, "Choose an inherited default");
+  const settings = page.getByRole("dialog", { name: "Edit Config" });
+  await expect(settings).toBeVisible();
+  await selectDropdownOption(page, "Default Handoff Mode", "progress");
+  await expect(card).toContainText("New handoffs will use Progress.");
+  await card.getByRole("button", { name: "Finish", exact: true }).click();
+  const recap = page.getByTestId("tour-recap");
+  await expect(recap).toContainText("Handoff Modes");
+  await expect(recap.locator("li")).toHaveCount(2);
+  await expect(recap.getByTestId("tour-next-lesson")).toHaveText(
+    "Next: Linked Elements",
+  );
+  await recap.getByTestId("tour-next-lesson").click();
+  await expect(recap).toHaveCount(0);
+  await heading(page, "See where the paths meet");
+  await exitLesson(page);
+  await page.getByRole("button", { name: "Help and tutorials" }).click();
+  await page.getByTestId("start-guided-tour").click();
+  await expect(page.getByTestId("tour-picker-handoff-modes")).toHaveClass(
+    /is-done/,
+  );
+});
+
+test("inserts a key chip into the Lib Key field", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/?lesson=event-triggers");
+  await heading(page, "Slide an event trigger");
+  const libKey = page.getByLabel("Lib Key", { exact: true });
+  await libKey.fill("");
+  await libKey.focus();
+  await page
+    .getByTestId("tour-card")
+    .getByTestId("tour-key-chip")
+    .first()
+    .click();
+  await expect(libKey).toHaveValue("startIntake");
+  await expect(libKey).toBeFocused();
+  expect(
+    (await practice(page)).path.path_elements.find(
+      (element) => element.type === "event_trigger",
+    ),
+  ).toMatchObject({ lib_key: "startIntake" });
+  // Both keys the lesson asks for are registered before any event uses them.
+  expect((await practice(page)).config.gui.event_trigger_keys).toEqual(
+    expect.arrayContaining(["startIntake", "stopIntake"]),
+  );
+});
+
+test("collapses and moves the card without losing the task", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/?lesson=event-triggers");
+  const card = page.getByTestId("tour-card");
+  await expect(page.getByTestId("tour-headline")).toContainText(
+    "Move startIntake",
+  );
+  await card.getByRole("button", { name: "Collapse lesson card" }).click();
+  await expect(card).toHaveClass(/is-collapsed/);
+  await expect(page.getByTestId("tour-headline")).toBeVisible();
+  await expect(card.getByText("Restart lesson")).toHaveCount(0);
+  const collapsed = await requiredBox(card);
+  expect(collapsed.height).toBeLessThan(110);
+  const handle = await requiredBox(page.getByTestId("tour-card-handle"));
+  await page.mouse.move(handle.x + 20, handle.y + handle.height / 2);
   await page.mouse.down();
-  await expect(skip).toHaveCSS("transform", "none");
-  await page.mouse.move(0, 0);
+  await page.mouse.move(handle.x + 420, handle.y + 300, { steps: 8 });
   await page.mouse.up();
-  await card.getByRole("heading", { name: "Canvas", exact: true }).hover();
-  await expect(card).toHaveAttribute("data-hover-fade", "false");
-  await page.clock.runFor(900);
-  await expect(card).toHaveCSS("opacity", "1");
-  await skip.hover();
-  await expect(card).toHaveCSS("opacity", "1");
+  const moved = await requiredBox(card);
+  expect(moved.x).toBeGreaterThan(collapsed.x + 350);
+  expect(moved.y).toBeGreaterThan(collapsed.y + 250);
+  await card.getByRole("button", { name: "Expand lesson card" }).click();
+  await expect(card.getByText("Restart lesson")).toBeVisible();
+  expect((await requiredBox(card)).x).toBeCloseTo(moved.x, 0);
 });
 
 for (const [width, height] of [
@@ -184,29 +338,32 @@ for (const [width, height] of [
       await gotoSampleEditor(page);
       await openLesson(page, "Getting Started");
       const original = await practice(page);
-      await heading(page, "Canvas");
-      await advance(page);
-      await heading(page, "Toolbar");
+      await heading(page, "The editor at a glance");
+      await page.getByTestId("tour-show-me").click();
+      await expect(page.getByTestId("tour-spotlight")).toHaveAttribute(
+        "data-show-me",
+        "tool-rail",
+      );
+      await expect(page.getByTestId("tour-spotlight")).toHaveAttribute(
+        "data-show-me",
+        "simulation-transport",
+      );
       await advance(page);
       await heading(page, "Sidebar");
       await expect(advanceButton(page)).toHaveCount(0);
+      const checklist = page
+        .getByTestId("tour-card")
+        .getByRole("list", { name: "Requirements" });
+      await expect(checklist.locator("li[data-complete=true]")).toHaveCount(0);
       await page
         .getByRole("button", { name: "Toggle inspector", exact: true })
         .click();
-      await advance(page);
-      await heading(page, "Elements");
+      await expect(checklist.locator("li[data-complete=true]")).toHaveCount(1);
       await page.getByRole("tab", { name: "Elements", exact: true }).click();
-      await advance(page);
-      await heading(page, "Constraints");
       await page.getByRole("tab", { name: "Constraints", exact: true }).click();
+      await expect(checklist.locator("li[data-complete=true]")).toHaveCount(3);
       await advance(page);
-      await heading(page, "Play bar");
-      await expect(
-        page.getByLabel("Simulation time", { exact: true }),
-      ).toBeVisible();
-      await playAndInspect(page);
-      await advance(page);
-      await heading(page, "File menu");
+      await heading(page, "Menus");
       await page.locator('[data-tour="export-menu-entry"]').click();
       await expect(
         page.locator('[data-tour="export-menu-entry"]'),
@@ -219,11 +376,7 @@ for (const [width, height] of [
       await expect(fileMenu.getByRole("menuitem").last()).toHaveText(
         "Settings",
       );
-      await advance(page);
-      await heading(page, "Edit actions");
-      await expect(page.locator('[data-tour="edit-controls"]')).toBeVisible();
-      await advance(page);
-      await heading(page, "Edit menu");
+      await expect(advanceButton(page)).toHaveCount(0);
       await page.locator('[data-tour="path-menu-entry"]').click();
       await expect(
         page.locator('[data-tour="path-menu-entry"]'),
@@ -311,11 +464,11 @@ for (const [width, height] of [
       await heading(page, "Route around the obstacle");
       await place(page, "Translation", 10, 4.5);
       await expect(advanceButton(page)).toHaveCount(0);
-      await expect(page.getByTestId("tour-card")).toContainText("bumpers");
+      await expect(page.getByTestId("tour-card")).toContainText("Bumpers");
       await setNumber(page, "X (m)", "10.8");
       await setNumber(page, "Y (m)", "6.8");
       await expect(page.getByTestId("tour-card")).toContainText(
-        "The simulated bumpers clear the obstacle.",
+        "Bumpers clear the obstacle — done",
         { timeout: 30_000 },
       );
       await advance(page);
@@ -621,6 +774,10 @@ test("keeps the element type dropdown usable during lessons @webkit-canvas", asy
   await expect(type).toHaveText("Waypoint");
   await heading(page, "Add a rotation target");
   await page.keyboard.press("Escape");
+  await page
+    .getByTestId("tour-leave-confirmation")
+    .getByRole("button", { name: "Leave lesson", exact: true })
+    .click();
   await expect(page.getByTestId("tour-card")).toHaveCount(0);
 });
 
@@ -891,7 +1048,7 @@ test("exports and imports an autos folder inside the web lesson", async ({
     await advance(page);
     await heading(page, "Save changes for your robot");
     await expect(page.getByTestId("tour-card")).toContainText(
-      "export the autos folder again",
+      "export again into src/main/deploy/autos",
     );
     await finish(page);
     expect((await practice(page)).path).toEqual(before.path);
@@ -997,7 +1154,7 @@ test("uses desktop folder menus and direct-saving guidance in the desktop lesson
   await advance(page);
   await heading(page, "Preview before deploying");
   await expect(page.getByTestId("tour-card")).toContainText(
-    "edits save directly to the open folder",
+    "edits save straight to the open folder",
   );
   await playAndInspect(page);
   await advance(page);
@@ -1208,7 +1365,7 @@ test("links one shared waypoint and propagates position and heading to both path
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 1280, height: 800 });
   await gotoSampleEditor(page);
-  await openLesson(page, "Advanced — Linked Elements");
+  await openLesson(page, "Linked Elements");
   await heading(page, "See where the paths meet");
   await previewGroup(page, "Score and Pickup");
   await advance(page);
@@ -1277,7 +1434,7 @@ test("keeps linked endpoints aligned and tunes only the final minimum velocity",
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 1600, height: 900 });
   await gotoSampleEditor(page);
-  await openLesson(page, "Advanced — Path Linking");
+  await openLesson(page, "Path Linking");
   await heading(page, "Preview both paths");
   await previewGroup(page, "Pickup and Score");
   await advance(page);
@@ -1335,8 +1492,12 @@ test("keeps linked endpoints aligned and tunes only the final minimum velocity",
   await playAndInspect(page);
   await advance(page);
   await heading(page, "Run both paths in robot code");
+  await page
+    .getByTestId("tour-card")
+    .getByRole("button", { name: "Why?", exact: true })
+    .click();
   await expect(page.getByTestId("tour-card")).toContainText(
-    "your robot code controls the sequence",
+    "your robot code decides which runs next",
   );
   await finish(page);
 });
@@ -1362,7 +1523,7 @@ for (const entryPoint of ["Learn panel", "help menu"]) {
       .getByTestId("tour-picker")
       .getByText("Getting Started", { exact: true })
       .click();
-    await heading(page, "Canvas");
+    await heading(page, "The editor at a glance");
     await exitLesson(page);
     await expect(home).toBeVisible();
     await expect(
@@ -1379,19 +1540,14 @@ test("keeps lessons available and active in a narrow window @webkit-canvas", asy
 }) => {
   await gotoSampleEditor(page);
   await openLesson(page, "Rotation targets");
-  const title = await page
-    .getByTestId("tour-card")
-    .getByRole("heading")
-    .innerText();
+  await heading(page, "Add a rotation target");
   await page.setViewportSize({ width: 560, height: 720 });
-  await expect(page.getByTestId("tour-card").getByRole("heading")).toHaveText(
-    title,
-  );
+  await heading(page, "Add a rotation target");
+  await expect(page.getByTestId("tour-headline")).toBeVisible();
   await exitLesson(page);
   await page.getByRole("button", { name: "Help and tutorials" }).click();
   await expect(page.getByTestId("start-guided-tour")).toBeEnabled();
   await page.getByTestId("start-guided-tour").click();
-  await page.getByTestId("tour-picker-settings").click();
   await page.getByTestId("tour-picker-robot-settings").click();
   await expect(page.getByTestId("tour-card")).toContainText("Robot size");
 });
@@ -1420,7 +1576,11 @@ async function previewGroup(page: Page, name: string) {
 async function exitLesson(page: Page) {
   await page
     .getByTestId("tour-card")
-    .getByRole("button", { name: "Skip lesson", exact: true })
+    .getByRole("button", { name: "Leave lesson", exact: true })
+    .click();
+  await page
+    .getByTestId("tour-leave-confirmation")
+    .getByRole("button", { name: "Leave lesson", exact: true })
     .click();
   await expect(page.getByTestId("tour-card")).toHaveCount(0);
 }
@@ -1443,6 +1603,12 @@ async function finish(page: Page) {
     .getByTestId("tour-card")
     .getByRole("button", { name: "Finish", exact: true })
     .click();
+  const recap = page.getByTestId("tour-recap");
+  await expect(recap).toContainText("Lesson complete");
+  expect(await recap.locator(".tour-recap__lines li").count()).toBeGreaterThan(
+    1,
+  );
+  await recap.getByRole("button", { name: "All lessons", exact: true }).click();
   await expect(
     page.getByRole("dialog", { name: "Lessons", exact: true }),
   ).toBeVisible();
@@ -1450,7 +1616,8 @@ async function finish(page: Page) {
 }
 
 async function heading(page: Page, title: string) {
-  await expect(page.getByTestId("tour-card").getByRole("heading")).toHaveText(
+  await expect(page.getByTestId("tour-card")).toHaveAttribute(
+    "data-step-title",
     title,
   );
 }
@@ -1619,7 +1786,7 @@ async function auditLayout(page: Page) {
     ),
   ).toBe(true);
   await card
-    .getByRole("button", { name: "Skip lesson", exact: true })
+    .getByRole("button", { name: "Leave lesson", exact: true })
     .click({ trial: true });
   if (process.env.BLINE_TOUR_SCREENSHOTS) {
     const title = (await card.getByRole("heading").innerText()).replace(

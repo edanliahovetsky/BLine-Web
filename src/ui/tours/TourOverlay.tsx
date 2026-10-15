@@ -789,8 +789,11 @@ export function TourOverlay({
       ))}
       <section
         ref={cardRef}
-        className={`tour-card${collapsed ? " is-collapsed" : ""}`}
+        className={`tour-card${collapsed ? " is-collapsed" : ""}${
+          dragged?.tourId === activeTourId ? " is-moved" : ""
+        }`}
         data-testid="tour-card"
+        data-step-title={step.title}
         inert={!!confirming}
         role="dialog"
         aria-modal="false"

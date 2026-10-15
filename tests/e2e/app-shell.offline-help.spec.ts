@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { gotoSampleEditor } from "./support/app-shell-shared";
+import { gotoSampleEditor, requiredBox } from "./support/app-shell-shared";
 
 test("completes the offline lesson and remembers completion @webkit-canvas", async ({
   page,
@@ -15,12 +15,29 @@ test("completes the offline lesson and remembers completion @webkit-canvas", asy
   await lesson.click();
 
   const card = page.getByTestId("tour-card");
+  await expect(card).toBeFocused();
+  await expect(page.getByTestId("tour-step-count")).toHaveText("1 / 2");
+  // The lesson points at the real indicator, shown in place for the lesson.
+  const indicator = page.getByTestId("offline-indicator");
+  await expect(indicator).toBeVisible();
+  await expect(page.getByTestId("tour-layer")).toHaveAttribute(
+    "data-tour-target",
+    "offline-indicator",
+  );
+  const ring = await requiredBox(page.getByTestId("tour-spotlight"));
+  const icon = await requiredBox(indicator);
+  expect(ring.x).toBeLessThanOrEqual(icon.x);
+  expect(ring.x + ring.width).toBeGreaterThanOrEqual(icon.x + icon.width);
+  await card.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(indicator).toHaveCount(0);
   await expect(card).toContainText("same browser on this device");
   await expect(card).toContainText("No installation needed");
-  await expect(card).toBeFocused();
-  await expect(page.getByTestId("tour-step-count")).toHaveText("1 / 1");
   await card.getByRole("button", { name: "Finish", exact: true }).click();
   await expect(card).toHaveCount(0);
+  await expect(page.getByTestId("tour-recap")).toContainText(
+    "BLine keeps a complete offline copy",
+  );
+  await page.getByRole("button", { name: "Close recap", exact: true }).click();
   await expect(home).toBeVisible();
   await expect(page.getByTestId("path-stage")).toHaveCount(0);
 
@@ -55,6 +72,10 @@ test("opens the offline lesson through editor tours and restores the project @we
   const card = page.getByTestId("tour-card");
   await expect(card).toBeVisible();
   await page.keyboard.press("Escape");
+  await page
+    .getByTestId("tour-leave-confirmation")
+    .getByRole("button", { name: "Leave lesson", exact: true })
+    .click();
   await expect(card).toHaveCount(0);
   await expect(elements).toHaveCount(count);
   await expect(page.getByTestId("current-project-status")).toHaveText(name);
