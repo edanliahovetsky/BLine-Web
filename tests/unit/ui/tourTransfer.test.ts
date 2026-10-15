@@ -214,7 +214,7 @@ describe("lesson autos folder transfer", () => {
     const desktop = createImportExportTour("tauri");
     const copy = (lesson: typeof web) =>
       lesson.steps.map((step) => step.body).join(" ");
-    expect(copy(web)).toContain("Export Autos Folder");
+    expect(copy(web)).toContain("Export to Robot");
     expect(copy(web)).toContain("autos.zip");
     expect(copy(web)).toContain("Edits save in this browser only");
     expect(copy(desktop)).toContain("Open Project Folder");

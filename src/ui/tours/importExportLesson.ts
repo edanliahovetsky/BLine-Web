@@ -34,24 +34,25 @@ const activePath = () => {
 const webSteps: TourStep[] = [
   {
     title: "Export an autos folder",
-    task: "Export the practice autos folder",
-    body: "Open File → Import / Export and choose Export Autos Folder. Save it in a spare folder; if your browser downloads autos.zip instead, keep the ZIP.",
+    task: "Export the practice autos to a spare folder",
+    body: "Choose File → Export to Robot… and pick a spare folder as the robot project. Safari, Firefox, and Brave download autos.zip instead; keep it for the next step.",
+    why: "With your real robot project, the paths land in src/main/deploy/autos, ready to deploy. BLine remembers that folder for next time.",
     target: "export-menu-entry",
-    visible: ["path-canvas"],
-    interact: fileMenus,
-    showMe: ["export-menu-entry", "top-menu-project-transfer"],
+    visible: ["path-canvas", "robot-export-dialog"],
+    interact: [...fileMenus, "export-to-robot", "robot-export-dialog"],
+    showMe: ["export-menu-entry", "export-to-robot"],
     prepare: { navigator: "closed", inspector: "closed", simulation: "start" },
     check: () =>
       feedback(
         hasAction("exportFolder"),
-        "Choose Export Autos Folder in the File menu.",
-        "Autos folder exported.",
+        "Choose Export to Robot… in the File menu.",
+        "Autos exported.",
       ),
   },
   {
     title: "Import the autos folder",
     task: "Import the autos folder you saved",
-    body: "Choose File → Import / Export → Import Autos Folder and pick the folder you saved, or Import Autos ZIP for autos.zip. Either holds config.json, paths, and project.json.",
+    body: "Choose File → Import / Export → Import Autos Folder and pick the autos folder you exported, or Import Autos ZIP for autos.zip. Either holds config.json, paths, and project.json.",
     why: "This lesson imports into its practice project, so your own work is untouched.",
     target: "export-menu-entry",
     interact: [...fileMenus, "lesson-import-folder", "lesson-import-zip"],
@@ -88,7 +89,7 @@ const webSteps: TourStep[] = [
   },
   {
     title: "Save changes for your robot",
-    body: "Edits save in this browser only. To update the robot, export again into src/main/deploy/autos in your robot project, then deploy.",
+    body: "Edits save in this browser only. To update the robot, use Export to Robot again, then deploy your robot code.",
     why: "An imported folder is a copy; it doesn’t stay in sync with the files on disk.",
     visible: ["path-canvas"],
     prepare: { closeMenus: true },

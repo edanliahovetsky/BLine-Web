@@ -698,6 +698,7 @@ const definitions: SupplementalTour[] = [
           inspector: "open",
           inspectorTab: "constraints",
           simulation: "start",
+          view: "frame-path",
         },
       },
       {
@@ -741,6 +742,7 @@ const definitions: SupplementalTour[] = [
           inspector: "open",
           inspectorTab: "constraints",
           simulation: "start",
+          view: "frame-path",
         },
         checks: [
           {

@@ -84,6 +84,7 @@ export function RobotExportDialog({
       <section
         ref={dialogRef}
         className="project-dialog robot-export-dialog"
+        data-tour="robot-export-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="robot-export-title"

@@ -155,6 +155,8 @@ export interface TourStepPreparation {
   pathHealth?: "closed";
   navigator?: "open" | "closed";
   showGhostPaths?: boolean;
+  /** Fit the whole path in view once the step's layout settles. */
+  view?: "frame-path";
 }
 
 export interface TourDefinition {

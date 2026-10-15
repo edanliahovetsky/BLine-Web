@@ -98,6 +98,7 @@ import { CommandPalette, ShortcutHelpDialog } from "./CommandPalette";
 import { useDialogFocusTrap } from "./useDialogFocusTrap";
 import { StartCenter } from "./StartCenter";
 import { OfflineIndicator } from "./OfflineIndicator";
+import { requestCanvasView } from "../../canvas/canvasViewRequests";
 import { registerOfflineApp } from "../../platform/offline";
 import {
   clampInspectorWidth,
@@ -412,6 +413,7 @@ export function AppShell() {
     snapshot: TourEditorViewSnapshot;
   } | null>(null);
   const tourSessionRef = useRef<TourSessionController | null>(null);
+  const lessonFramedViewRef = useRef(false);
   const configSaveInProgressRef = useRef(false);
   useEffect(() => {
     const workspace = workspaceRef.current;
@@ -614,6 +616,11 @@ export function AppShell() {
         setActiveTool("select");
       },
       restoreView: (view) => {
+        // A lesson that zoomed to its practice path hands back the full field.
+        if (lessonFramedViewRef.current) {
+          lessonFramedViewRef.current = false;
+          requestCanvasView({ kind: "fit-field" });
+        }
         autoVelocityStore.setState({ autoSyncEnabled: view.autoSyncEnabled });
         setShowLinkedTargetsDialog(false);
         setConfigDialogSection(null);
@@ -3239,6 +3246,14 @@ export function AppShell() {
           }
           if (preparation.pathHealth === "closed") {
             setShowPathHealth(false);
+          }
+          if (preparation.view) {
+            lessonFramedViewRef.current = true;
+            const view = { kind: preparation.view } as const;
+            requestCanvasView(view);
+            // A lesson's first step can prepare before the practice canvas
+            // mounts or while the workspace resize glides; frame once more.
+            window.setTimeout(() => requestCanvasView(view), 400);
           }
         }}
       />

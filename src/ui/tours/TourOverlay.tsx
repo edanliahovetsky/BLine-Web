@@ -96,6 +96,7 @@ export function TourOverlay({
   const wantsGhostPaths = step?.prepare?.showGhostPaths;
   const wantsAutoPlay = step?.prepare?.autoPlay;
   const wantsCloseMenus = step?.prepare?.closeMenus;
+  const wantsView = step?.prepare?.view;
 
   const cardRef = useRef<HTMLElement | null>(null);
   const restartLessonButtonRef = useRef<HTMLButtonElement>(null);
@@ -222,7 +223,8 @@ export function TourOverlay({
       wantsNavigator ||
       wantsGhostPaths !== undefined ||
       wantsAutoPlay ||
-      wantsCloseMenus
+      wantsCloseMenus ||
+      wantsView
     ) {
       onPrepare({
         inspector: wantsInspector ?? undefined,
@@ -243,6 +245,7 @@ export function TourOverlay({
         autoPlay:
           !isReviewing && !returningToExercise ? wantsAutoPlay : undefined,
         closeMenus: wantsCloseMenus,
+        view: wantsView,
       });
     }
     if (!isReviewing && !capturedStepTokens.current.has(token)) {
@@ -268,6 +271,7 @@ export function TourOverlay({
     wantsAutoPlay,
     wantsCloseMenus,
     wantsTool,
+    wantsView,
   ]);
 
   // Track where the spotlight and interaction holes sit, following layout.
@@ -481,7 +485,7 @@ export function TourOverlay({
         // Let an editor popup consume Escape before the lesson sees it.
         if (
           document.querySelector(
-            '[data-tour="constraint-popout"], [data-tour="element-add-menu"], [data-tour="element-link-menu"], [data-tour="element-type-menu"], [data-tour="event-key-menu"], [data-tour="event-key-options"], [data-tour="project-navigator"], [data-tour="linked-elements-dialog"], [data-tour="settings-dialog"]:not([data-walkthrough]), .top-menu__panel, [data-tour="path-breadcrumb"] [role="listbox"], [role="dialog"][aria-label="Path health"]',
+            '[data-tour="constraint-popout"], [data-tour="element-add-menu"], [data-tour="element-link-menu"], [data-tour="element-type-menu"], [data-tour="event-key-menu"], [data-tour="event-key-options"], [data-tour="project-navigator"], [data-tour="linked-elements-dialog"], [data-tour="settings-dialog"]:not([data-walkthrough]), [data-tour="robot-export-dialog"], .top-menu__panel, [data-tour="path-breadcrumb"] [role="listbox"], [role="dialog"][aria-label="Path health"]',
           )
         )
           return;

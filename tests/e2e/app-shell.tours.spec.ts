@@ -207,6 +207,16 @@ test("walks Handoff Modes to completion with a guided Radius and Progress compar
   await page.goto("/?lesson=handoff-modes");
   const card = page.getByTestId("tour-card");
   await heading(page, "Two ways to reach a handoff");
+  // The lesson frames its small practice route instead of the whole field.
+  await expect
+    .poll(async () =>
+      parseInt(
+        await page
+          .getByRole("button", { name: "Fit view", exact: true })
+          .innerText(),
+      ),
+    )
+    .toBeGreaterThan(150);
   // The gate is explained only once Progress exists.
   await expect(card).not.toContainText("gate");
   await advance(page);
@@ -272,6 +282,21 @@ test("walks Handoff Modes to completion with a guided Radius and Progress compar
   await expect(page.getByTestId("tour-picker-handoff-modes")).toHaveClass(
     /is-done/,
   );
+});
+
+test("frames a lesson's practice path and gives back the full field on exit", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoSampleEditor(page);
+  const zoom = page.getByRole("button", { name: "Fit view", exact: true });
+  await expect(zoom).toHaveText("100%");
+  await openLesson(page, "Handoff Modes");
+  await expect
+    .poll(async () => parseInt(await zoom.innerText()))
+    .toBeGreaterThan(150);
+  await exitLesson(page);
+  await expect(zoom).toHaveText("100%");
 });
 
 test("inserts a key chip into the Lib Key field", async ({ page }) => {
@@ -1024,13 +1049,26 @@ test("exports and imports an autos folder inside the web lesson", async ({
     await heading(page, "Export an autos folder");
     await page.getByRole("button", { name: "File", exact: true }).click();
     await page
-      .getByRole("menuitem", { name: "Import / Export", exact: true })
+      .getByRole("menuitem", { name: "Export to Robot...", exact: true })
+      .click();
+    const robotExport = page.getByRole("dialog", { name: "Export to robot" });
+    await expect(robotExport).toContainText("autos.zip");
+    // Escape belongs to the export dialog, not the lesson.
+    await page.keyboard.press("Escape");
+    await expect(robotExport).toHaveCount(0);
+    await expect(page.getByTestId("tour-leave-confirmation")).toHaveCount(0);
+    await page.getByRole("button", { name: "File", exact: true }).click();
+    await page
+      .getByRole("menuitem", { name: "Export to Robot...", exact: true })
       .click();
     const downloading = page.waitForEvent("download");
-    await page
-      .getByRole("menuitem", { name: "Export Autos Folder...", exact: true })
+    await robotExport
+      .getByRole("button", { name: "Download autos.zip", exact: true })
       .click();
     const download = await downloading;
+    await robotExport
+      .getByRole("button", { name: "Done", exact: true })
+      .click();
     expect(download.suggestedFilename()).toBe("autos.zip");
     const downloadPath = await download.path();
     if (!downloadPath) throw new Error("Expected the exported autos ZIP");
@@ -1085,7 +1123,7 @@ test("exports and imports an autos folder inside the web lesson", async ({
     await advance(page);
     await heading(page, "Save changes for your robot");
     await expect(page.getByTestId("tour-card")).toContainText(
-      "export again into src/main/deploy/autos",
+      "use Export to Robot again",
     );
     await finish(page);
     expect((await practice(page)).path).toEqual(before.path);
