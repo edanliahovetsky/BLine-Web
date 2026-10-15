@@ -8,6 +8,7 @@ import {
   modelToCanvasPoint,
   pointDistance,
   simulationProgress,
+  waitForCanvasSettled,
 } from "./support/app-shell-canvas";
 import { runEditMenuAction } from "./support/app-shell-commands";
 import { openConstraintsTab } from "./support/app-shell-constraints";
@@ -122,6 +123,7 @@ for (const background of ["built-in", "grid", "custom"] as const) {
 
     const stage = page.getByTestId("path-stage");
     await expect(stage).toBeVisible();
+    await waitForCanvasSettled(page);
 
     const selectedRow = page.getByTestId("path-element-row-0");
     await selectedRow.click();

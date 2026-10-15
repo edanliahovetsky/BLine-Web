@@ -172,6 +172,8 @@ interface PathStageProps {
   onShowMotionProfileChange?(show: boolean): void;
   /** Lets shell commands drive the canvas view and preview transport. */
   controlsRef?: RefObject<PathStageControls | null>;
+  /** Unsaved Settings to draw and simulate with while they are edited. */
+  previewConfig?: ProjectConfig | null;
 }
 
 export interface PathStageControls {
@@ -258,6 +260,7 @@ export function PathStage({
   showMotionProfile = false,
   onShowMotionProfileChange,
   controlsRef,
+  previewConfig = null,
 }: PathStageProps = {}) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasHostRef = useRef<HTMLDivElement | null>(null);
@@ -345,9 +348,16 @@ export function PathStage({
   const [pointerPosition, setPointerPosition] = useState<StagePoint | null>(
     null,
   );
-  const durableProject = useStoreSelector(
+  const storedProject = useStoreSelector(
     projectStore,
     (state) => state.project,
+  );
+  const durableProject = useMemo(
+    () =>
+      storedProject && previewConfig
+        ? { ...storedProject, config: previewConfig }
+        : storedProject,
+    [previewConfig, storedProject],
   );
   const activePathId = useStoreSelector(
     projectStore,

@@ -26,6 +26,7 @@ import {
   type WorkspaceConflictDiff,
 } from "../../core/io/workspaceConflictDiff";
 import {
+  builtInFieldDefinitions,
   defaultFieldId,
   fieldCoordinateBounds,
   resolveUserFieldDefinition,
@@ -87,6 +88,7 @@ import {
 import {
   ProjectConfigDialog,
   type ConfigSectionId,
+  type SettingsDraftPreview,
 } from "./ProjectConfigDialog";
 import { writeProjectFolder } from "./projectFolderExport";
 import { filesFromAutosZip } from "./projectFolderZip";
@@ -345,7 +347,14 @@ export function AppShell() {
   );
   const navigatorOpen = Boolean(editorProject && showPathGroupsDialog);
   // Preserve the user's inspector state while the navigator borrows its space.
-  const inspectorVisible = inspectorOpen && !navigatorOpen;
+  // Outside lessons, Settings dock beside the canvas in the inspector's place
+  // so edits can be seen on the field before saving.
+  const settingsPanelOpen =
+    showConfigDialog && !settingsWalkthrough && !activeTourId;
+  const inspectorVisible =
+    inspectorOpen && !navigatorOpen && !settingsPanelOpen;
+  const [settingsPreview, setSettingsPreview] =
+    useState<SettingsDraftPreview | null>(null);
   const navigatorWidthMax = Math.min(
     840,
     Math.floor(workspaceWidth * 0.7),
@@ -752,18 +761,28 @@ export function AppShell() {
             ) ?? defaultFieldId)
         : defaultFieldId;
 
+  // A field picked in the Settings panel shows at once; new uploads wait for
+  // Save because their images are not stored yet.
+  const previewFieldId =
+    settingsPreview &&
+    (builtInFieldDefinitions.some(
+      (field) => field.id === settingsPreview.selectedFieldId,
+    ) ||
+      fieldBackgrounds.some(
+        (field) => field.id === settingsPreview.selectedFieldId,
+      ))
+      ? settingsPreview.selectedFieldId
+      : null;
+  const fieldGridSize = (settingsPreview?.config ?? durableProject?.config)?.gui
+    .field.grid_size_meters;
   const activeField = useMemo(
     () =>
       resolveUserFieldDefinition(
-        selectedFieldId,
+        previewFieldId ?? selectedFieldId,
         fieldBackgrounds,
-        durableProject?.config.gui.field.grid_size_meters,
+        fieldGridSize,
       ),
-    [
-      fieldBackgrounds,
-      selectedFieldId,
-      durableProject?.config.gui.field.grid_size_meters,
-    ],
+    [fieldBackgrounds, previewFieldId, selectedFieldId, fieldGridSize],
   );
 
   useEffect(
@@ -2251,7 +2270,8 @@ export function AppShell() {
     category: "View",
     shortcut: { key: "b", metaOrCtrl: true },
     scope: "global",
-    disabled: !pathAvailable,
+    // Settings use the inspector's place until they are saved or cancelled.
+    disabled: !pathAvailable || settingsPanelOpen,
     run: () => {
       if (navigatorOpen) {
         handleClosePathLibrary();
@@ -2736,6 +2756,7 @@ export function AppShell() {
           "workspace",
           editorProject && !inspectorVisible ? "is-inspector-collapsed" : "",
           navigatorOpen ? "is-navigator-open" : "",
+          settingsPanelOpen ? "is-settings-open" : "",
         ]
           .filter(Boolean)
           .join(" ")}
@@ -2806,6 +2827,7 @@ export function AppShell() {
                 showMotionProfile={showMotionProfile}
                 onShowMotionProfileChange={handleShowMotionProfileChange}
                 controlsRef={pathStageControlsRef}
+                previewConfig={settingsPreview?.config ?? null}
                 curveTool={curveToolSession}
                 simulationSeekRequest={
                   activeTourId ? tourSimulationSeekRequest : null
@@ -2863,6 +2885,22 @@ export function AppShell() {
               onDialogOpenChange={setInspectorDialogOpen}
             />
             {!inspectorVisible ? workspaceStatus : null}
+            {durableProject && settingsPanelOpen ? (
+              <ProjectConfigDialog
+                key="settings"
+                variant="panel"
+                initialSection={configDialogSection ?? undefined}
+                autoSyncEnabled={autoSyncEnabled}
+                config={durableProject.config}
+                project={durableProject}
+                fieldBackgrounds={fieldBackgrounds}
+                selectedFieldId={selectedFieldId}
+                onCancel={() => setConfigDialogSection(null)}
+                onSave={handleSaveConfig}
+                onDraftPreview={setSettingsPreview}
+                onLoadFieldImage={handleLoadFieldImage}
+              />
+            ) : null}
           </>
         )}
       </div>
@@ -2944,7 +2982,9 @@ export function AppShell() {
           onClose={() => setImportError(null)}
         />
       ) : null}
-      {durableProject && (showConfigDialog || settingsWalkthrough) ? (
+      {durableProject &&
+      (showConfigDialog || settingsWalkthrough) &&
+      !settingsPanelOpen ? (
         <ProjectConfigDialog
           key={
             settingsWalkthrough

@@ -258,6 +258,7 @@ test("organizes File and Edit commands in their requested locations", async ({
   ).toHaveText([
     "Home",
     "New Path",
+    "Export to Robot...",
     "Workspace",
     "Import / Export",
     "Config",
@@ -404,6 +405,7 @@ test("keeps File flyouts compact and Edit actions in a single menu", async ({
   );
   await expect(transferMenu.getByRole("menuitem")).toHaveText([
     "Import Autos Folder...",
+    "Import Autos ZIP...",
     "Export Autos Folder...",
     "Import Project Archive...",
     "Export Project Archive...",

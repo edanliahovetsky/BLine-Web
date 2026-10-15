@@ -56,7 +56,16 @@ const configSections = [
 
 export type ConfigSectionId = (typeof configSections)[number]["id"];
 
+/** The unsaved Settings a docked panel lets the canvas draw. */
+export interface SettingsDraftPreview {
+  config: ProjectConfig;
+  selectedFieldId: string;
+}
+
 interface ProjectConfigDialogProps {
+  /** A panel docks beside the canvas instead of covering it. */
+  variant?: "dialog" | "panel";
+  onDraftPreview?(preview: SettingsDraftPreview | null): void;
   lessonMode?: boolean;
   initialSection?: ConfigSectionId;
   project?: Project;
@@ -101,6 +110,8 @@ const SettingsWalkthroughContext =
   createContext<ProjectConfigDialogProps["walkthrough"]>(undefined);
 
 export function ProjectConfigDialog({
+  variant = "dialog",
+  onDraftPreview,
   project,
   lessonMode = false,
   initialSection = "robot",
@@ -279,8 +290,35 @@ export function ProjectConfigDialog({
       ? fieldPreview.url
       : null;
 
+  const panel = variant === "panel";
   useEffect(() => {
-    if (walkthrough) return;
+    onDraftPreview?.({
+      config: normalizedDraft,
+      selectedFieldId: fieldDraft.selectedFieldId,
+    });
+  }, [fieldDraft.selectedFieldId, normalizedDraft, onDraftPreview]);
+  useEffect(() => () => onDraftPreview?.(null), [onDraftPreview]);
+  const formRef = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    if (!panel) return;
+    // Move into the panel, and hand focus back to whatever opened it.
+    const opener =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    const form = formRef.current;
+    form?.focus();
+    return () => {
+      const active = document.activeElement;
+      if (!active || active === document.body || form?.contains(active)) {
+        opener?.focus({ preventScroll: true });
+      }
+    };
+  }, [panel]);
+
+  useEffect(() => {
+    // The panel leaves the canvas usable, so only its own Escape closes it.
+    if (walkthrough || panel) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !saving) {
         event.preventDefault();
@@ -290,145 +328,162 @@ export function ProjectConfigDialog({
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onCancel, saving, walkthrough]);
+  }, [onCancel, panel, saving, walkthrough]);
+
+  const form = (
+    <form
+      ref={formRef}
+      className={`config-dialog${panel ? " config-dialog--panel" : ""}`}
+      data-tour="settings-dialog"
+      data-walkthrough={walkthrough ? "true" : undefined}
+      role="dialog"
+      aria-modal={!walkthrough && !panel}
+      aria-label="Edit Config"
+      tabIndex={panel ? -1 : undefined}
+      onKeyDown={
+        panel
+          ? (event) => {
+              if (event.key === "Escape" && !saving) {
+                event.preventDefault();
+                onCancel();
+              }
+            }
+          : undefined
+      }
+      onSubmit={(event) => {
+        event.preventDefault();
+        saveDraft();
+      }}
+    >
+      <header className="config-dialog__header">
+        <strong>Settings</strong>
+        {!walkthrough && (
+          <CloseButton
+            ariaLabel="Close config"
+            disabled={saving}
+            onClick={onCancel}
+          />
+        )}
+      </header>
+
+      <div className="config-dialog__body" inert={saving}>
+        <SettingsNav
+          activeSection={activeSection}
+          onSectionChange={(section) => {
+            setActiveSection(section);
+            contentRef.current?.scrollTo({ top: 0 });
+          }}
+        />
+
+        <div ref={contentRef} className="config-dialog__content">
+          {activeSection === "field" ? (
+            <FieldSettingsSection
+              fieldDraft={fieldDraft}
+              fieldInputRef={fieldInputRef}
+              fieldPreviewUrl={fieldPreviewUrl}
+              fieldUploadError={fieldUploadError}
+              fieldUploading={fieldUploading}
+              selectedCustomField={selectedCustomField}
+              selectedField={selectedField}
+              onGridSizeChange={(size) =>
+                setDraft((current) => ({
+                  ...current,
+                  gui: {
+                    ...current.gui,
+                    field: {
+                      ...current.gui.field,
+                      grid_size_meters: {
+                        ...selectedField.geometry,
+                        ...size,
+                      },
+                    },
+                  },
+                }))
+              }
+              setFieldDraft={setFieldDraft}
+              setFieldImageDrafts={setFieldImageDrafts}
+              setFieldUploadError={setFieldUploadError}
+              setFieldUploading={setFieldUploading}
+            />
+          ) : null}
+
+          {activeSection === "robot" ? (
+            <RobotSettingsSection
+              draft={draft}
+              eventKeyProject={{
+                config: draft,
+                paths: eventKeyProject?.paths ?? [],
+              }}
+              protrusionDefaultStateOptions={protrusionDefaultStateOptions}
+              protrusionsEnabled={protrusionsEnabled}
+              setDraft={setDraft}
+            />
+          ) : null}
+
+          {activeSection === "path-defaults" ? (
+            <PathDefaultsSettingsSection draft={draft} setDraft={setDraft} />
+          ) : null}
+
+          {activeSection === "event-triggers" && project && (
+            <EventTriggerSettings
+              project={project}
+              config={draft}
+              edits={eventKeyEdits}
+              onChange={(config, edits) => {
+                if (walkthrough) {
+                  onWalkthroughChange?.(config, {
+                    autoSyncEnabled: draftAutoSyncEnabled,
+                    selectedFieldId: fieldDraft.selectedFieldId,
+                    eventKeyEdits: edits,
+                  });
+                  return;
+                }
+                setDraft(config);
+                setEventKeyEdits(edits);
+              }}
+            />
+          )}
+          {activeSection === "optimizer" ? (
+            <OptimizerSettingsSection
+              autoSyncEnabled={draftAutoSyncEnabled}
+              draft={draft}
+              setAutoSyncEnabled={setDraftAutoSyncEnabled}
+              setDraft={setDraft}
+            />
+          ) : null}
+        </div>
+      </div>
+
+      {!walkthrough && (
+        <footer className="config-dialog__footer">
+          <button type="button" disabled={saving} onClick={onCancel}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="primary-action"
+            disabled={!isDirty || fieldUploading || saving}
+            onClick={saveDraft}
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </footer>
+      )}
+    </form>
+  );
 
   return (
     <SettingsWalkthroughContext.Provider value={walkthrough}>
-      <div
-        className={`config-dialog-backdrop${lessonMode ? " config-dialog-backdrop--lesson" : ""}`}
-        role="presentation"
-      >
-        <form
-          className="config-dialog"
-          data-tour="settings-dialog"
-          data-walkthrough={walkthrough ? "true" : undefined}
-          role="dialog"
-          aria-modal={!walkthrough}
-          aria-label="Edit Config"
-          onSubmit={(event) => {
-            event.preventDefault();
-            saveDraft();
-          }}
+      {panel ? (
+        form
+      ) : (
+        <div
+          className={`config-dialog-backdrop${lessonMode ? " config-dialog-backdrop--lesson" : ""}`}
+          role="presentation"
         >
-          <header className="config-dialog__header">
-            <strong>Settings</strong>
-            {!walkthrough && (
-              <CloseButton
-                ariaLabel="Close config"
-                disabled={saving}
-                onClick={onCancel}
-              />
-            )}
-          </header>
-
-          <div className="config-dialog__body" inert={saving}>
-            <SettingsNav
-              activeSection={activeSection}
-              onSectionChange={(section) => {
-                setActiveSection(section);
-                contentRef.current?.scrollTo({ top: 0 });
-              }}
-            />
-
-            <div ref={contentRef} className="config-dialog__content">
-              {activeSection === "field" ? (
-                <FieldSettingsSection
-                  fieldDraft={fieldDraft}
-                  fieldInputRef={fieldInputRef}
-                  fieldPreviewUrl={fieldPreviewUrl}
-                  fieldUploadError={fieldUploadError}
-                  fieldUploading={fieldUploading}
-                  selectedCustomField={selectedCustomField}
-                  selectedField={selectedField}
-                  onGridSizeChange={(size) =>
-                    setDraft((current) => ({
-                      ...current,
-                      gui: {
-                        ...current.gui,
-                        field: {
-                          ...current.gui.field,
-                          grid_size_meters: {
-                            ...selectedField.geometry,
-                            ...size,
-                          },
-                        },
-                      },
-                    }))
-                  }
-                  setFieldDraft={setFieldDraft}
-                  setFieldImageDrafts={setFieldImageDrafts}
-                  setFieldUploadError={setFieldUploadError}
-                  setFieldUploading={setFieldUploading}
-                />
-              ) : null}
-
-              {activeSection === "robot" ? (
-                <RobotSettingsSection
-                  draft={draft}
-                  eventKeyProject={{
-                    config: draft,
-                    paths: eventKeyProject?.paths ?? [],
-                  }}
-                  protrusionDefaultStateOptions={protrusionDefaultStateOptions}
-                  protrusionsEnabled={protrusionsEnabled}
-                  setDraft={setDraft}
-                />
-              ) : null}
-
-              {activeSection === "path-defaults" ? (
-                <PathDefaultsSettingsSection
-                  draft={draft}
-                  setDraft={setDraft}
-                />
-              ) : null}
-
-              {activeSection === "event-triggers" && project && (
-                <EventTriggerSettings
-                  project={project}
-                  config={draft}
-                  edits={eventKeyEdits}
-                  onChange={(config, edits) => {
-                    if (walkthrough) {
-                      onWalkthroughChange?.(config, {
-                        autoSyncEnabled: draftAutoSyncEnabled,
-                        selectedFieldId: fieldDraft.selectedFieldId,
-                        eventKeyEdits: edits,
-                      });
-                      return;
-                    }
-                    setDraft(config);
-                    setEventKeyEdits(edits);
-                  }}
-                />
-              )}
-              {activeSection === "optimizer" ? (
-                <OptimizerSettingsSection
-                  autoSyncEnabled={draftAutoSyncEnabled}
-                  draft={draft}
-                  setAutoSyncEnabled={setDraftAutoSyncEnabled}
-                  setDraft={setDraft}
-                />
-              ) : null}
-            </div>
-          </div>
-
-          {!walkthrough && (
-            <footer className="config-dialog__footer">
-              <button type="button" disabled={saving} onClick={onCancel}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="primary-action"
-                disabled={!isDirty || fieldUploading || saving}
-                onClick={saveDraft}
-              >
-                {saving ? "Saving…" : "Save"}
-              </button>
-            </footer>
-          )}
-        </form>
-      </div>
+          {form}
+        </div>
+      )}
     </SettingsWalkthroughContext.Provider>
   );
 }

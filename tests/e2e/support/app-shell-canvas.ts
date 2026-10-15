@@ -149,3 +149,29 @@ export async function expectPathElementTypes(
     await expect(rows.nth(index)).toContainText(`${index + 1}. ${type}`);
   }
 }
+
+/**
+ * Waits until a canvas node holds still, since the view glides to a new
+ * framing whenever the inspector, navigator or Settings panel resizes it.
+ */
+export async function waitForCanvasSettled(
+  page: Page,
+  testId = "path-element-node-0",
+): Promise<void> {
+  let previous: { x: number; y: number } | null = null;
+  await expect
+    .poll(
+      async () => {
+        const current = await canvasNodePositionOrNull(page, testId);
+        const settled =
+          previous !== null &&
+          current !== null &&
+          Math.abs(current.x - previous.x) < 0.5 &&
+          Math.abs(current.y - previous.y) < 0.5;
+        previous = current;
+        return settled;
+      },
+      { intervals: [120] },
+    )
+    .toBe(true);
+}

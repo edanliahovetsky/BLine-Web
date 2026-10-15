@@ -1,5 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
-import { canvasNodePosition } from "./support/app-shell-canvas";
+import {
+  canvasNodePosition,
+  waitForCanvasSettled,
+} from "./support/app-shell-canvas";
 import {
   gotoSampleEditor,
   openProjectSettings,
@@ -74,6 +77,8 @@ test("ghost starts at the canvas center, uses waypoint drag/rotation and survive
       .getByRole("switch", { name: "Legacy appearance", exact: true })
       .setChecked(legacy);
     await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await waitForCanvasSettled(page, "path-element-node--1");
     const current = await canvasNodePosition(page, "path-element-node--1");
     const front = await canvasNodePosition(page, "path-element-front--1");
     const before = await previewPose(page);
