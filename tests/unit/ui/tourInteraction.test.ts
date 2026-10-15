@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  createPathModel,
-  createTranslationTarget,
-  createWaypoint,
-} from "../../../src/core/model/path";
-import {
   assessTourStep,
   tourAllowsShortcut,
   tourInteractionTargets,
@@ -14,7 +9,6 @@ import type { TourStep } from "../../../src/ui/tours/tourStore";
 const placement: TourStep = {
   title: "Endpoints",
   body: "Place endpoints",
-  elements: { waypoint: 2 },
   interact: ["tool-waypoint", "path-canvas"],
   lockInteractionOnComplete: true,
 };
@@ -26,25 +20,44 @@ const key = (key: string, modifier = false) => ({
 });
 
 describe("lesson interaction contract", () => {
-  it("does not accept mixed types, extra elements, or missing endpoints", () => {
-    const path = createPathModel({
-      path_elements: [createWaypoint(), createTranslationTarget()],
-    });
-    expect(assessTourStep(placement, path)).toMatchObject({
+  it("reports each named sub-check and completes only when all pass", () => {
+    const state = { placed: false, keyed: false };
+    const step: TourStep = {
+      title: "Add",
+      body: "Add an event",
+      task: "Add it",
+      checks: [
+        {
+          label: "Placed",
+          check: () => ({ complete: state.placed, message: "Place it." }),
+        },
+        {
+          label: "Keyed",
+          check: () => ({ complete: state.keyed, message: "Type the key." }),
+        },
+      ],
+    };
+    expect(assessTourStep(step)).toEqual({
       complete: false,
-      message: expect.stringContaining("Missing waypoint"),
+      message: "Place it.",
+      items: [
+        { label: "Placed", complete: false, hint: "Place it." },
+        { label: "Keyed", complete: false, hint: "Type the key." },
+      ],
     });
-    path.path_elements = [
-      createWaypoint(),
-      createWaypoint(),
-      createTranslationTarget(),
-    ];
-    expect(assessTourStep(placement, path)).toMatchObject({
+    state.placed = true;
+    expect(assessTourStep(step)).toMatchObject({
       complete: false,
-      message: expect.stringContaining("Extra translation"),
+      message: "Type the key.",
     });
-    path.path_elements.pop();
-    expect(assessTourStep(placement, path).complete).toBe(true);
+    state.keyed = true;
+    expect(assessTourStep(step).complete).toBe(true);
+    expect(
+      assessTourStep({
+        ...step,
+        check: () => ({ complete: false, message: "Overall" }),
+      }),
+    ).toMatchObject({ complete: false, message: "Overall" });
   });
 
   it("limits keyboard tools and duplication while keeping history available", () => {
@@ -80,8 +93,8 @@ describe("lesson interaction contract", () => {
       body: "Check",
       check: () => ({ complete, message: "Current result" }),
     };
-    expect(assessTourStep(step, null).complete).toBe(true);
+    expect(assessTourStep(step).complete).toBe(true);
     complete = false;
-    expect(assessTourStep(step, null).complete).toBe(false);
+    expect(assessTourStep(step).complete).toBe(false);
   });
 });

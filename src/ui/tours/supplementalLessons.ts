@@ -28,6 +28,7 @@ import {
   supplementalPathIds as ids,
 } from "./supplementalScenarios";
 import { tourStore, type TourDefinition, type TourStep } from "./tourStore";
+import { observedTourCondition } from "./tourInteraction";
 
 interface SupplementalTour extends TourDefinition {
   practiceGroups?(): ProjectPathGroup[];
@@ -123,6 +124,22 @@ function changedSharedScorePose() {
   );
 }
 
+function lastOrdinal(path = pathById(ids.stagingPickup)?.path) {
+  return (
+    path?.path_elements.filter(
+      (element) =>
+        element.type === "waypoint" || element.type === "translation",
+    ).length ?? 0
+  );
+}
+function minimumConstraints() {
+  return (
+    pathById(ids.stagingPickup)?.path.ranged_constraints.filter(
+      (constraint) => constraint.key === "min_velocity_meters_per_sec",
+    ) ?? []
+  );
+}
+
 function hasTransitionMinimum(path: PathModel | undefined) {
   if (!path) return false;
   const lastOrdinal = path.path_elements.filter(
@@ -152,90 +169,139 @@ function hasTransitionMinimum(path: PathModel | undefined) {
   );
 }
 
+/** Done once a Play starts while `condition` holds, during this step. */
+function playedWhile(condition: () => boolean) {
+  let token = "";
+  let plays = 0;
+  let latched = false;
+  return () => {
+    const state = tourStore.getState();
+    const current = `${state.activeTourId}:${state.attemptId}:${state.stepIndex}`;
+    const count = state.actions.play ?? 0;
+    if (current !== token) {
+      token = current;
+      plays = count;
+      latched = false;
+    }
+    if (count > plays) {
+      if (condition()) latched = true;
+      plays = count;
+    }
+    return latched;
+  };
+}
+
+const activePath = () => pathById(projectStore.getState().activePathId ?? "");
+const middleHandoffMode = () => {
+  const element = activePath()?.path.path_elements[1];
+  return element?.type === "translation"
+    ? (element.handoff_mode ??
+        project()?.config.kinematic_constraints.default_handoff_mode ??
+        "radius")
+    : null;
+};
+const playedWithProgress = playedWhile(
+  () => middleHandoffMode() === "progress",
+);
+const switchedToRadius = observedTourCondition(
+  () => playedWithProgress() && middleHandoffMode() === "radius",
+);
+const playedWithRadius = playedWhile(
+  () => switchedToRadius() && middleHandoffMode() === "radius",
+);
+
 const managementSteps: TourStep[] = [
   {
     title: "Choose a path",
-    body: "This project has two autos and a few test paths. Use the path dropdown to select Top - Score to Pickup.",
+    task: "Select Top - Score to Pickup",
+    body: "This project has two autos and some test paths. Open the path dropdown and choose Top - Score to Pickup.",
     target: "path-breadcrumb",
     visible: ["path-canvas"],
     interact: ["path-breadcrumb"],
-    task: "Select Top - Score to Pickup",
     prepare: { navigator: "closed", inspector: "closed", simulation: "start" },
     check: () =>
       feedback(
         activePathIs(managementIds.topScorePickup),
-        "Select Top - Score to Pickup in the path dropdown.",
+        "Click the path name at the top, then choose Top - Score to Pickup.",
         "Top - Score to Pickup is selected.",
       ),
   },
   {
     title: "Open the Project Navigator",
-    body: "Open the Project Navigator beside the canvas. Drag its right edge to resize it. Testing, Top Side Auto, and Bottom Side Auto each have three paths; the lines show their group memberships.",
+    task: "Open the Project Navigator",
+    body: "The Navigator lists every path beside the canvas. Lines show which groups each path belongs to; drag its right edge to resize it.",
     target: "navigator-button",
     interact: navigation,
-    task: "Open the Project Navigator",
     check: () =>
       feedback(
         navigatorOpen(),
-        "Click the navigator button.",
-        "The lines show which paths belong to each group.",
+        "Click the Navigator button at top left.",
+        "Testing, Top Side Auto, and Bottom Side Auto each hold three paths.",
       ),
   },
   {
     title: "Create a Path Group",
-    body: "Click + beside Path Groups and name your group My Auto. We'll add the three top-side paths to it.",
+    task: "Create a group named My Auto",
+    body: "Click + beside Path Groups, type My Auto, and press Enter.",
     target: "navigator-groups",
     interact: navigation,
     prepare: { navigator: "open" },
-    task: "Create My Auto",
     check: () =>
       feedback(
         !!groupNamed("My Auto"),
-        "Create the group and save its name.",
+        "Click + beside Path Groups, type My Auto, and press Enter.",
         "My Auto created.",
       ),
   },
   {
     title: "Connect its three paths",
-    body: "Select My Auto, then click the connection point beside each path whose name starts with Top. A path can belong to more than one group, so these stay in Top Side Auto too.",
+    task: "Add the three Top paths to My Auto",
+    body: "Select My Auto, then click the connection point beside each path whose name starts with Top.",
+    why: "A path can belong to several groups, so these paths stay in Top Side Auto too.",
     target: "navigator-paths",
     interact: navigation,
     prepare: { navigator: "open" },
-    task: "Add the three top-side paths to My Auto",
-    check: () =>
-      feedback(
-        [
-          managementIds.topStartScore,
-          managementIds.topScorePickup,
-          managementIds.topPickupScore,
-        ].every((id) => groupNamed("My Auto")?.path_ids.includes(id)),
-        "Connect all three paths whose names start with Top.",
-        "All three paths are in My Auto.",
-      ),
+    checks: (
+      [
+        ["Top - Start to Score", managementIds.topStartScore],
+        ["Top - Score to Pickup", managementIds.topScorePickup],
+        ["Top - Pickup to Score", managementIds.topPickupScore],
+      ] as const
+    ).map(([label, id]) => ({
+      label,
+      check: () =>
+        feedback(
+          !!groupNamed("My Auto")?.path_ids.includes(id),
+          groupNamed("My Auto")
+            ? "Click its connection point while My Auto is selected."
+            : "Create My Auto first.",
+          "",
+        ),
+    })),
   },
   {
     title: "Preview the group",
-    body: "Click My Auto to preview it on the canvas. The selected path stays bright and the other paths are faint. Each path's End is linked to the next Start, so they stay together when you edit them.",
+    task: "Click My Auto to preview it",
+    body: "The selected path stays bright and the rest of the group fades. Each path’s End is linked to the next Start, so they move together.",
     target: "navigator-groups",
     visible: ["path-canvas"],
     interact: navigation,
     prepare: { navigator: "open", showGhostPaths: true },
-    task: "Preview My Auto",
     check: () =>
       feedback(
         !!groupNamed("My Auto") && previewing(groupNamed("My Auto")!.group_id),
-        "Click My Auto to preview it on the canvas.",
+        "Click My Auto in the Navigator.",
         "The three paths are visible together.",
       ),
   },
   {
     title: "Work on one path",
-    body: "Select Top - Pickup to Score in the path dropdown. You can edit or play this path while the other paths in the group stay visible.",
+    task: "Select Top - Pickup to Score",
+    body: "Choose it in the path dropdown. You can edit and play it while the rest of the group stays visible.",
     target: "path-breadcrumb",
     visible: ["path-canvas", "simulation-transport"],
     interact: ["path-breadcrumb", "path-canvas", ...transport],
     prepare: { navigator: "closed", showGhostPaths: true },
-    task: "Select Top - Pickup to Score",
     check: () =>
       feedback(
         activePathIs(managementIds.topPickupScore),
@@ -245,7 +311,7 @@ const managementSteps: TourStep[] = [
   },
   {
     title: "Explore your groups",
-    body: "Single-click a path or group to preview it; double-click its name to rename it. Use the connection button to show or hide membership lines. Groups organize paths; your robot code decides their running order.",
+    body: "Click a path or group to preview it, and double-click a name to rename it. Groups organize paths; your robot code decides the order they run.",
     visible: ["path-canvas", "simulation-transport"],
     interact: [...navigation, "path-breadcrumb", "path-canvas", ...transport],
   },
@@ -254,22 +320,23 @@ const managementSteps: TourStep[] = [
 const linkedElementSteps: TourStep[] = [
   {
     title: "See where the paths meet",
-    body: "Click Score and Pickup in the Project Navigator to preview the group. Start to Score ends where Score to Pickup starts.",
+    task: "Click Score and Pickup to preview the group",
+    body: "In the Navigator, click Score and Pickup. Start to Score ends where Score to Pickup starts.",
     target: "navigator-groups",
     visible: ["path-canvas"],
     interact: navigation,
     prepare: { navigator: "open", inspector: "closed", showGhostPaths: true },
-    task: "Preview Score and Pickup",
     check: () =>
       feedback(
         previewing("lesson-score-cycle"),
-        "Click Score and Pickup to preview the group.",
+        "Click Score and Pickup in the Navigator.",
         "The first path ends where the next starts.",
       ),
   },
   {
     title: "Create a linked waypoint",
-    body: "Select End on Start to Score. Open Link beside the element type, choose New Linked Waypoint, and name it Score. Click Create & Link.",
+    task: "Link End to a new waypoint named Score",
+    body: "End on Start to Score is selected. Open Link beside its type, choose New Linked Waypoint, name it Score, and click Create & Link.",
     target: "element-link",
     visible: ["path-canvas"],
     interact: linkedEditing,
@@ -280,38 +347,40 @@ const linkedElementSteps: TourStep[] = [
       selectElement: (path) => path.path_elements.length - 1,
       tool: "select",
     },
-    task: "Create a linked waypoint named Score",
     check: () =>
       feedback(
         !!scoreTarget() &&
           getPathElementLinkedTargetId(scoringElements()[0]) ===
             scoreTarget()?.target_id,
-        "Create Score from Start to Score's End waypoint.",
+        "Open Link, choose New Linked Waypoint, and name it Score.",
         "End now uses the shared Score.",
       ),
   },
   {
     title: "Link the next path's Start",
-    body: "Choose Score to Pickup and select Start. Open Link, choose Choose Existing, select Score, and click Link Selected.",
+    task: "Link Score to Pickup’s Start to Score",
+    body: "Switch to Score to Pickup in the path dropdown and select Start. Open Link, choose Choose Existing, pick Score, and click Link Selected.",
     target: "path-breadcrumb",
     visible: ["element-properties", "path-canvas"],
     interact: linkedEditing,
+    showMe: ["path-breadcrumb", "element-link"],
     prepare: {
       navigator: "closed",
       inspector: "open",
       inspectorTab: "elements",
     },
-    task: "Link Score to Pickup's Start to Score",
     check: () =>
       feedback(
         linkedScoreUses(),
-        "Link the first path’s End and the next path’s Start to Score.",
+        "Link Score to Pickup’s Start to Score.",
         "Both waypoints are linked to Score.",
       ),
   },
   {
     title: "Edit once, update both paths",
-    body: "Move the linked waypoint and change its heading. Both paths update together. Linked waypoints share position and heading. Linked translations share only position.",
+    task: "Move Score and change its heading",
+    body: "Drag the linked waypoint and turn its heading. Both paths update together.",
+    why: "Linked waypoints share position and heading. Linked translation targets share only position.",
     target: "element-properties",
     visible: ["path-canvas"],
     interact: linkedEditing,
@@ -321,34 +390,40 @@ const linkedElementSteps: TourStep[] = [
       tool: "select",
       showGhostPaths: true,
     },
-    task: "Move and turn Score",
     check: () =>
       feedback(
         changedSharedScorePose(),
-        "Move Score and change its heading. Keep both waypoints linked.",
+        "Move Score and change its heading; keep both waypoints linked.",
         "Both paths have the new position and heading.",
       ),
   },
   {
     title: "Check the other path",
-    body: "Switch to Start to Score and select End. Its position and heading changed too. Press Play to see the updated path.",
+    task: "Select Start to Score and press Play",
+    body: "Its End moved and turned along with Score.",
     target: "path-breadcrumb",
     visible: ["path-canvas", "simulation-transport"],
     interact: [...linkedEditing, ...transport],
-    task: "Select Start to Score and play it",
     prepare: { simulation: "start" },
-    check: () =>
-      feedback(
-        activePathIs(ids.stagingScore) &&
-          changedSharedScorePose() &&
-          hasAction("play"),
-        "Select Start to Score and press Play.",
-        "The other path updated too.",
-      ),
+    checks: [
+      {
+        label: "Start to Score selected",
+        check: () =>
+          feedback(
+            activePathIs(ids.stagingScore) && changedSharedScorePose(),
+            "Choose Start to Score in the path dropdown.",
+            "",
+          ),
+      },
+      {
+        label: "Played the path",
+        check: () => feedback(hasAction("play"), "Press Play.", ""),
+      },
+    ],
   },
   {
     title: "Each path keeps its own settings",
-    body: "Link waypoints that should stay together. Each path still has its own handoff radii, constraints, and Profiled Rotation settings. Exported paths use the linked points’ current positions and headings.",
+    body: "Linking shares only position and heading. Each path keeps its own handoff radii, constraints, and Profiled Rotation. Exports use the linked point’s current pose.",
     visible: ["path-canvas"],
     interact: [...linkedEditing, ...transport],
   },
@@ -357,22 +432,23 @@ const linkedElementSteps: TourStep[] = [
 const pathLinkingSteps: TourStep[] = [
   {
     title: "Preview both paths",
-    body: "Click Pickup and Score in the Project Navigator to preview the group. The first path’s End and the second path’s Start share a linked waypoint named Pickup.",
+    task: "Click Pickup and Score to preview the group",
+    body: "These paths meet at a linked waypoint named Pickup: the first path’s End is the second path’s Start.",
     target: "navigator-groups",
     visible: ["path-canvas"],
     interact: navigation,
     prepare: { navigator: "open", inspector: "closed", showGhostPaths: true },
-    task: "Preview Pickup and Score",
     check: () =>
       feedback(
         previewing("lesson-pickup-chain"),
-        "Click Pickup and Score to preview the group.",
+        "Click Pickup and Score in the Navigator.",
         "Both paths meet at Pickup.",
       ),
   },
   {
     title: "Inspect the next Start",
-    body: "Click the grey Pickup to Score path on the canvas to switch to it, then select Start. Its Link menu shows Pickup, the same linked waypoint used by the first path’s End.",
+    task: "Click the grey Pickup to Score path",
+    body: "Clicking a faint path on the canvas switches to it. Its Start links to Pickup, the same point the first path ends on.",
     target: "path-canvas",
     visible: ["path-canvas", "element-properties"],
     interact: linkedEditing,
@@ -383,17 +459,17 @@ const pathLinkingSteps: TourStep[] = [
       showGhostPaths: true,
       tool: "select",
     },
-    task: "Click the grey Pickup to Score path",
     check: () =>
       feedback(
         activePathIs(ids.pickupExit),
-        "Click the grey path on the right to switch to Pickup to Score.",
+        "Click the grey path on the right.",
         "Start is linked to Pickup.",
       ),
   },
   {
     title: "Set the speed near End",
-    body: "Click the grey Start to Pickup path on the canvas to switch back, then open Constraints. Minimum velocity prevents the robot from slowing to a stop near End, helping it transition smoothly into the next path.",
+    task: "Switch back to Start to Pickup and open Constraints",
+    body: "Click the grey path on the left to switch back, then open Constraints.",
     target: "path-canvas",
     interact: ["path-breadcrumb", ...constraints],
     prepare: {
@@ -402,38 +478,81 @@ const pathLinkingSteps: TourStep[] = [
       showGhostPaths: true,
       tool: "select",
     },
-    task: "Open Constraints on Start to Pickup",
-    check: () =>
-      feedback(
-        activePathIs(ids.stagingPickup) &&
-          present('[data-tour="inspector-constraints"][aria-selected="true"]'),
-        "Click the grey path on the left to switch to Start to Pickup, then open Constraints.",
-        "The first path’s constraints are open.",
-      ),
+    checks: [
+      {
+        label: "Start to Pickup selected",
+        check: () =>
+          feedback(
+            activePathIs(ids.stagingPickup),
+            "Click the grey path on the left.",
+            "",
+          ),
+      },
+      {
+        label: "Constraints open",
+        check: () =>
+          feedback(
+            present(
+              '[data-tour="inspector-constraints"][aria-selected="true"]',
+            ),
+            "Click Constraints in the sidebar.",
+            "",
+          ),
+      },
+    ],
   },
   {
     title: "Choose the transition speed",
-    body: "Click Add constraint and choose Min Velocity. Drag its cell to End (W2) and set it to 1.5 m/s. This is the speed you want the robot to carry into Pickup to Score for a smooth, unbroken transition.",
+    task: "Set Min Velocity to 1.5 m/s at End",
+    body: "Click Add constraint and choose Min Velocity. Its new bar starts at the top cell; drag it down to the bottom cell, beside End, and type 1.5.",
+    why: "Min Velocity prevents the robot from slowing to a stop near End, so it carries 1.5 m/s into the next path for a smooth, unbroken transition.",
     target: "inspector-panel",
     visible: ["path-canvas"],
     interact: constraints,
     prepare: { inspector: "open", inspectorTab: "constraints" },
-    task: "Set Min Velocity to 1.5 m/s on End",
-    check: () =>
-      feedback(
-        hasTransitionMinimum(pathById(ids.stagingPickup)?.path),
-        "Set Min Velocity to 1.5 m/s on End only.",
-        "The transition speed is set to 1.5 m/s.",
-      ),
+    checks: [
+      {
+        label: "Min Velocity added",
+        check: () =>
+          feedback(
+            minimumConstraints().length > 0,
+            "Click Add constraint, then choose Min Velocity.",
+            "",
+          ),
+      },
+      {
+        label: "Only on End",
+        check: () =>
+          feedback(
+            minimumConstraints().length > 0 &&
+              minimumConstraints().every(
+                (constraint) =>
+                  constraint.start_ordinal === lastOrdinal() &&
+                  constraint.end_ordinal === lastOrdinal(),
+              ),
+            "Drag the Min Velocity bar down to the bottom cell, beside End.",
+            "",
+          ),
+      },
+      {
+        label: "1.5 m/s, below the speed limit",
+        check: () =>
+          feedback(
+            hasTransitionMinimum(pathById(ids.stagingPickup)?.path),
+            "Click the bar and type 1.5.",
+            "",
+          ),
+      },
+    ],
   },
   {
     title: "Play the first path",
-    body: "Play the path and watch how it keeps speed approaching End. The 1.5 m/s minimum is your chosen entry speed for Pickup to Score, so the robot can continue without stopping. This preview plays one path at a time.",
+    task: "Play Start to Pickup",
+    body: "Watch the robot keep its speed as it nears End. That 1.5 m/s is the speed it carries into Pickup to Score. This preview plays one path at a time.",
     target: "transport-play",
     visible: ["path-canvas"],
     interact: [...transport, ...constraints],
     prepare: { simulation: "start" },
-    task: "Play Start to Pickup",
     check: () =>
       feedback(
         activePathIs(ids.stagingPickup) && hasAction("play"),
@@ -443,7 +562,8 @@ const pathLinkingSteps: TourStep[] = [
   },
   {
     title: "Run both paths in robot code",
-    body: "Run the next path immediately after the first in your robot code. Match End and Start poses, and choose the first path’s minimum velocity for the speed you want to enter the next path. Here, 1.5 m/s carries the robot through a smooth, unbroken transition. A Path Group organizes the paths; your robot code controls the sequence.",
+    body: "Run the next path immediately after the first in your robot code. Matching End and Start poses plus a minimum speed make the handoff smooth.",
+    why: "A Path Group only organizes paths; your robot code decides which runs next.",
     visible: ["path-canvas", "simulation-transport"],
     interact: ["path-breadcrumb", "path-canvas", ...transport],
     prepare: { inspector: "closed", showGhostPaths: true },
@@ -457,7 +577,10 @@ const definitions: SupplementalTour[] = [
     title: "Path Management",
     summary: "Organize autos and test paths with Path Groups",
     durationMinutes: 4,
-    recap: ["Lesson complete."],
+    recap: [
+      "Path Groups organize related paths, and a path can belong to several.",
+      "Previewing a group shows its other paths faintly while you edit one.",
+    ],
     practicePath: () => createManagementPaths()[0].path,
     practicePaths: createManagementPaths,
     practiceGroups: createManagementGroups,
@@ -468,10 +591,13 @@ const definitions: SupplementalTour[] = [
   offlineTour,
   {
     id: "current-pose-start",
-    title: "Advanced — Current-pose Starts",
+    title: "Current-pose Starts",
     summary: "Start a path wherever the robot is when it runs",
     durationMinutes: 3,
-    recap: ["Lesson complete."],
+    recap: [
+      "A path without an authored start begins wherever the robot is.",
+      "The grey ghost only sets the preview’s starting pose; it is never exported.",
+    ],
     practiceConfig,
     practicePath: () =>
       createPathModel({
@@ -486,7 +612,7 @@ const definitions: SupplementalTour[] = [
     steps: [
       {
         title: "An implicit start",
-        body: "A single destination, or a path beginning with a rotation or event, starts from the robot’s current pose when execution begins. This example has a rotation target followed by a translation target. Its grey ghost waypoint represents the starting pose for preview only.",
+        body: "A path that begins with a single destination, a rotation, or an event starts wherever the robot is. The grey ghost waypoint stands in for that pose in the preview.",
         visible: ["path-canvas", "inspector-panel"],
         prepare: {
           inspector: "open",
@@ -497,29 +623,29 @@ const definitions: SupplementalTour[] = [
       },
       {
         title: "Move the preview start",
-        body: "Drag the grey ghost waypoint to a different position. Drag its front edge to rotate it, just like a regular waypoint. Select it and use the arrow keys to adjust its position. Moving it changes the preview and generated constraints without adding an element to the list.",
+        task: "Drag the grey ghost waypoint somewhere else",
+        body: "Drag the ghost to move it, or drag its front edge to rotate it. It changes only the preview, not the path’s elements.",
+        why: "Select the ghost and use the arrow keys for fine moves. Generated constraints use its pose too.",
         target: "path-canvas",
         prepare: { inspector: "closed", simulation: "start", tool: "select" },
         interact: ["path-canvas"],
         visible: ["path-canvas", "inspector-panel"],
-        task: "Move the ghost waypoint",
         check: () => {
-          const pose = pathById(projectStore.getState().activePathId ?? "")
-            ?.path.preview?.start_pose;
+          const pose = activePath()?.path.preview?.start_pose;
           return feedback(
             !!pose && Math.hypot(pose.x_meters - 3, pose.y_meters - 3) > 0.05,
-            "Drag the grey preview start to another position.",
-            "The preview now starts at that position.",
+            "Drag the grey ghost to another position.",
+            "The preview now starts there.",
           );
         },
       },
       {
         title: "Try the path",
-        body: "Press Play. The leading rotation is placed along the line from the ghost to the destination, just like a rotation between two authored points. It does not require a stop. Tank drive ignores intermediate rotations and uses the path’s saved driving direction. The arrow buttons beside playback also set the direction exported to the robot; Backward travels rear-first without reversing the element order.",
+        task: "Press Play",
+        body: "The leading rotation sits on the line from the ghost to the destination, just as between two authored points. The robot doesn’t stop to turn.",
         target: "transport-play",
         interact: ["path-canvas", ...transport],
         visible: ["path-canvas", ...transport],
-        task: "Play from your preview start",
         check: () =>
           feedback(
             hasAction("play"),
@@ -529,7 +655,8 @@ const definitions: SupplementalTour[] = [
       },
       {
         title: "What reaches the robot",
-        body: "The ghost is saved only in this project’s editor metadata. It cannot be linked and is not exported as a path element. Robot code samples the actual pose when the path starts, so test the expected starting area. Requesting a pose reset on a path without an authored start reports a warning and skips the reset. The last element must still be a waypoint or translation target.",
+        body: "The ghost is saved only in this project’s editor data and is never exported. Robot code uses the real pose when the path starts, so test from the expected starting area.",
+        why: "Requesting a pose reset on a path without an authored start logs a warning and skips the reset. The last element must still be a waypoint or translation target.",
         visible: ["path-canvas", "inspector-panel"],
         interact: ["path-canvas", ...transport],
       },
@@ -537,10 +664,13 @@ const definitions: SupplementalTour[] = [
   },
   {
     id: "handoff-modes",
-    title: "Advanced — Handoff Modes",
+    title: "Handoff Modes",
     summary: "Choose when the follower moves to the next point",
-    durationMinutes: 3,
-    recap: ["Lesson complete."],
+    durationMinutes: 4,
+    recap: [
+      "Radius hands off within a distance of the point; Progress hands off when that much of the incoming line remains.",
+      "Each point can override the project’s default mode from its chip in Constraints.",
+    ],
     practiceConfig,
     practicePath: () =>
       createPathModel({
@@ -561,8 +691,9 @@ const definitions: SupplementalTour[] = [
     steps: [
       {
         title: "Two ways to reach a handoff",
-        body: "A handoff changes the translation target before the robot reaches the point. Radius waits until the robot is within the chosen distance. Progress measures along the incoming line: it hands off when that much distance remains, even if the robot is beside the line. The purple dashed gate marks that threshold; its visible ends do not limit lateral distance. Neither mode requires a stop.",
-        visible: ["path-canvas"],
+        body: "A handoff moves the robot on to its next target early. Radius hands off within a set distance of the point; Progress hands off when that much of the incoming line remains.",
+        why: "Neither mode makes the robot stop. The final point has no handoff; it uses end tolerances instead.",
+        visible: ["path-canvas", "inspector-panel"],
         prepare: {
           inspector: "open",
           inspectorTab: "constraints",
@@ -571,46 +702,34 @@ const definitions: SupplementalTour[] = [
       },
       {
         title: "Change one point",
-        body: "In Constraints, select the middle purple handoff chip. The row below it keeps Auto/Manual, the distance in metres, and Radius/Progress together. Auto generates the distance; Manual lets you enter it. Shift-click another chip to change several handoff modes together. The geometry mode is separate from Auto/Manual. The final point uses end tolerances instead of a handoff.",
         task: "Set the middle handoff to Progress",
-        check: () => {
-          const element = pathById(projectStore.getState().activePathId ?? "")
-            ?.path.path_elements[1];
-          return feedback(
-            element?.type === "translation" &&
-              element.handoff_mode === "progress",
-            "Select the middle purple chip, then choose the Progress arrow button.",
-            "This point uses Progress.",
-          );
-        },
+        body: "In Constraints, click the lower 0.45 m chip. In the row that opens below it, choose the Progress arrow button.",
+        why: "Auto/Manual sets where the distance comes from; Radius/Progress sets how it is measured. Shift-click chips to change several at once.",
+        target: "max-velocity-card",
+        showMe: ["max-velocity-card", "element-handoff"],
         interact: ["path-canvas", "inspector-panel", "max-velocity-card"],
+        visible: ["path-canvas", "inspector-panel"],
+        check: () =>
+          feedback(
+            middleHandoffMode() === "progress",
+            "Click the lower 0.45 m chip, then the Progress arrow button.",
+            "The middle point now uses Progress.",
+          ),
+      },
+      {
+        title: "The progress gate",
+        body: "The purple dashed line across the incoming segment is the progress gate. The robot hands off as it crosses that line, even if it is off to one side.",
+        why: "The gate’s drawn ends are only a marker; they don’t limit how far to the side the robot can be.",
+        target: "path-canvas",
         visible: ["path-canvas", "inspector-panel"],
       },
       {
-        title: "Choose an inherited default",
-        body: "Settings → Path Defaults selects the project mode. The geometry buttons show the resolved mode, including any path default stored in an imported file. Choose either button to override it. Use the small reset on the selected tile to inherit again; hover a geometry button to see where its default comes from. Older projects use Radius.",
-        settingsSection: "path-defaults",
-        visible: ["settings-dialog"],
-        interact: ["settings-dialog"],
-        task: "Set the project default to Progress",
-        check: () =>
-          feedback(
-            project()?.config.kinematic_constraints.default_handoff_mode ===
-              "progress",
-            "Choose Progress in Default Handoff Mode.",
-            "New default handoffs will use Progress.",
-          ),
-      },
-      {
         title: "Try both on a corner",
-        task: "Play the path",
-        check: () =>
-          feedback(
-            hasAction("play"),
-            "Press Play to preview the corner.",
-            "Continue when you are ready.",
-          ),
-        body: "Run the path, then compare Radius and Progress on the middle point. Progress can leave a segment while the robot is still laterally displaced, so inspect the corner clearance. Rotation progresses independently: an early translation handoff does not jump to an authored heading. A larger distance can still leave less space for the robot to complete its turn.",
+        task: "Play with Progress, then with Radius",
+        body: "Play the path and watch where the robot turns at the middle point. Then switch the lower chip back to Radius and play again.",
+        why: "Progress can leave a segment while the robot is still off to the side, so check corner clearance. Rotation is separate: an early handoff doesn’t jump to the next heading.",
+        target: "transport-play",
+        showMe: ["transport-play", "max-velocity-card"],
         interact: [
           "path-canvas",
           "inspector-panel",
@@ -623,15 +742,60 @@ const definitions: SupplementalTour[] = [
           inspectorTab: "constraints",
           simulation: "start",
         },
+        checks: [
+          {
+            label: "Played with Progress",
+            check: () =>
+              feedback(
+                playedWithProgress(),
+                middleHandoffMode() === "progress"
+                  ? "Press Play."
+                  : "Switch the lower chip to Progress, then press Play.",
+                "",
+              ),
+          },
+          {
+            label: "Switched the middle point to Radius",
+            check: () =>
+              feedback(
+                switchedToRadius(),
+                "Click the lower chip, then the Radius button.",
+                "",
+              ),
+          },
+          {
+            label: "Played with Radius",
+            check: () => feedback(playedWithRadius(), "Press Play again.", ""),
+          },
+        ],
+      },
+      {
+        title: "Choose an inherited default",
+        task: "Set the project default to Progress",
+        body: "Path Defaults sets the handoff mode that new points inherit. A point whose mode you chose keeps it.",
+        why: "The geometry buttons show the resolved mode, including a default stored in an imported file. Use the small reset on a selected tile to inherit again. Older projects use Radius.",
+        settingsSection: "path-defaults",
+        visible: ["settings-dialog"],
+        interact: ["settings-dialog"],
+        check: () =>
+          feedback(
+            project()?.config.kinematic_constraints.default_handoff_mode ===
+              "progress",
+            "Choose Progress in Default Handoff Mode.",
+            "New handoffs will use Progress.",
+          ),
       },
     ],
   },
   {
     id: "linked-elements",
-    title: "Advanced — Linked Elements",
+    title: "Linked Elements",
     summary: "Link waypoints so both paths update when you edit them",
     durationMinutes: 4,
-    recap: ["Lesson complete."],
+    recap: [
+      "Linked waypoints keep the ends of connected paths together.",
+      "Editing a linked point updates every path that uses it.",
+    ],
     markers: organizationMarkers,
     practicePath: () => createLinkedElementPaths()[0].path,
     practicePaths: createLinkedElementPaths,
@@ -641,10 +805,13 @@ const definitions: SupplementalTour[] = [
   },
   {
     id: "path-linking",
-    title: "Advanced — Path Linking",
+    title: "Path Linking",
     summary: "Connect one path’s End to the next path’s Start",
     durationMinutes: 4,
-    recap: ["Lesson complete."],
+    recap: [
+      "A shared End and Start pose lets one path flow into the next.",
+      "Min Velocity on End sets the speed the robot carries into the next path.",
+    ],
     markers: linkingMarkers,
     practicePath: () => createPathLinkingPaths()[0].path,
     practicePaths: createPathLinkingPaths,
@@ -655,4 +822,5 @@ const definitions: SupplementalTour[] = [
   },
 ];
 
-export const supplementalTours: TourDefinition[] = definitions;
+export const importExportTour: TourDefinition = definitions[0];
+export const advancedTours: readonly TourDefinition[] = definitions.slice(1);

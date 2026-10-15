@@ -11,7 +11,7 @@ import {
   useState,
 } from "react";
 import type { ChangeEvent, CSSProperties, RefObject } from "react";
-import { Check, ChevronDown, CircleAlert } from "lucide-react";
+import { Check, CircleAlert } from "lucide-react";
 import {
   PathStage,
   type CanvasElementPlacement,
@@ -111,7 +111,7 @@ import {
 } from "./editorCommands";
 import { derivePathDiagnostics, type PathDiagnostic } from "./pathDiagnostics";
 import { TourOverlay } from "../tours/TourOverlay";
-import { tourStore, type TourDefinition } from "../tours/tourStore";
+import { tourStore } from "../tours/tourStore";
 import {
   capturePracticeTransfer,
   importPracticeFolderWithFeedback,
@@ -131,7 +131,12 @@ import {
   selectedFieldBackgroundForProject,
 } from "../../userData";
 import { migrateImportedLegacyFieldBackgrounds } from "../../userData/legacyFieldMigration";
-import { findTour, tourPickerEntries, tours } from "../tours/tours";
+import {
+  editorBasicsTourId,
+  findTour,
+  tourSections,
+  tours,
+} from "../tours/tours";
 import { useLessonLink } from "../tours/useLessonLink";
 import { tourAllowsTarget } from "../tours/tourInteraction";
 import {
@@ -921,7 +926,8 @@ export function AppShell() {
   }, [cancelAutosave, refreshWorkspaceSummaries]);
 
   const startGuidedTour = useCallback(
-    (tourId: string) => tourSessionRef.current?.start(tourId) ?? false,
+    (tourId: string, resume = false) =>
+      tourSessionRef.current?.start(tourId, { resume }) ?? false,
     [],
   );
 
@@ -2654,6 +2660,7 @@ export function AppShell() {
   const workspaceStatus = workspaceStatusVisible ? (
     <WorkspaceStatus
       compact={!inspectorVisible}
+      offlineLesson={activeTourStep?.target === "offline-indicator"}
       diagnostics={pathDiagnostics}
       saveCommand={saveCommand}
       saveStatus={saveStatus}
@@ -2795,6 +2802,9 @@ export function AppShell() {
             }}
             onOpenSample={() => void handleOpenSample()}
             onOpenLessons={() => setShowTourPicker(true)}
+            onStartFirstLesson={() => {
+              if (!startGuidedTour(editorBasicsTourId)) setShowTourPicker(true);
+            }}
             onRetryInitialization={retryInitialization}
           />
         ) : (
@@ -3135,8 +3145,8 @@ export function AppShell() {
             setShowTourPicker(false);
             setUnavailableLessonLink(false);
           }}
-          onStart={(tourId) => {
-            if (startGuidedTour(tourId)) {
+          onStart={(tourId, resume) => {
+            if (startGuidedTour(tourId, resume)) {
               setShowTourPicker(false);
               setUnavailableLessonLink(false);
             }
@@ -3239,6 +3249,7 @@ export function AppShell() {
 function WorkspaceStatus({
   compact,
   controlRef,
+  offlineLesson,
   diagnostics,
   saveCommand,
   saveStatus,
@@ -3250,6 +3261,8 @@ function WorkspaceStatus({
 }: {
   compact: boolean;
   controlRef: RefObject<HTMLDivElement | null>;
+  /** The offline lesson shows the offline icon where it normally appears. */
+  offlineLesson: boolean;
   diagnostics: readonly PathDiagnostic[];
   saveCommand: EditorCommand;
   saveStatus: string;
@@ -3339,7 +3352,7 @@ function WorkspaceStatus({
         ) : null}
       </button>
       {saveTooltip.tooltip}
-      <OfflineIndicator />
+      <OfflineIndicator lesson={offlineLesson} />
       <span className="sr-only" role="status">
         {saveLabel}
       </span>
@@ -3353,7 +3366,7 @@ function TourPickerDialog({
   unavailableLink,
 }: {
   onClose(): void;
-  onStart(tourId: string): void;
+  onStart(tourId: string, resume?: boolean): void;
   unavailableLink: boolean;
 }) {
   const dialogRef = useDialogFocusTrap<HTMLElement>();
@@ -3361,57 +3374,14 @@ function TourPickerDialog({
     tourStore,
     (state) => state.completedTourIds,
   );
+  const suspended = useStoreSelector(tourStore, (state) => state.suspended);
+  const resumeTour = suspended ? findTour(suspended.tourId) : null;
   const completedCount = tours.filter((tour) =>
     completedTourIds.includes(tour.id),
   ).length;
   const recommendedTourId = tours.find(
     (tour) => !completedTourIds.includes(tour.id),
   )?.id;
-
-  const [settingsExpanded, setSettingsExpanded] = useState(() =>
-    tourPickerEntries.some(
-      (entry) =>
-        "lessons" in entry &&
-        entry.lessons.some(
-          (lesson) =>
-            lesson.id === recommendedTourId ||
-            completedTourIds.includes(lesson.id),
-        ),
-    ),
-  );
-  const renderLesson = (tour: TourDefinition, number: string) => {
-    const done = completedTourIds.includes(tour.id);
-    const recommended = tour.id === recommendedTourId;
-    return (
-      <button
-        key={tour.id}
-        type="button"
-        className={`tour-picker__lesson${done ? " is-done" : ""}`}
-        data-testid={`tour-picker-${tour.id}`}
-        onClick={() => onStart(tour.id)}
-      >
-        <span className="tour-picker__badge">
-          {done ? (
-            <Check size={14} role="img" aria-label="Completed" />
-          ) : (
-            number
-          )}
-        </span>
-        <span className="tour-picker__copy">
-          <strong>{tour.title}</strong>
-          {recommended && (
-            <span className="tour-picker__recommended">
-              {completedCount === 0 ? "Recommended first" : "Recommended next"}
-            </span>
-          )}
-          <small>{tour.summary}</small>
-        </span>
-        <span className="tour-picker__duration">
-          {tour.durationMinutes} min
-        </span>
-      </button>
-    );
-  };
 
   return (
     <div
@@ -3451,64 +3421,103 @@ function TourPickerDialog({
               This lesson link is unavailable. Choose a lesson below.
             </p>
           )}
-          {tourPickerEntries.map((entry, index) => {
-            if (!("lessons" in entry))
-              return renderLesson(entry, String(index + 1));
-            const done = entry.lessons.filter((lesson) =>
+          {suspended && resumeTour ? (
+            <div
+              className="tour-picker__resume"
+              data-testid="tour-picker-resume-banner"
+            >
+              <span>
+                <strong>{resumeTour.title}</strong>
+                <small>
+                  Left at step {suspended.stepIndex + 1} of{" "}
+                  {resumeTour.steps.length}
+                </small>
+              </span>
+              <button
+                type="button"
+                data-testid="tour-picker-start-over"
+                onClick={() => {
+                  tourStore.getState().forgetSuspended();
+                  onStart(resumeTour.id);
+                }}
+              >
+                Start over
+              </button>
+              <button
+                type="button"
+                className="is-primary"
+                data-testid="tour-picker-resume"
+                onClick={() => onStart(resumeTour.id, true)}
+              >
+                Resume
+              </button>
+            </div>
+          ) : null}
+          {tourSections.map((section) => {
+            const done = section.lessons.filter((lesson) =>
               completedTourIds.includes(lesson.id),
             ).length;
-            const recommended = entry.lessons.some(
-              (lesson) => lesson.id === recommendedTourId,
+            const minutes = section.lessons.reduce(
+              (total, lesson) => total + lesson.durationMinutes,
+              0,
             );
             return (
-              <div key={entry.id} className="tour-picker__group">
-                <button
-                  type="button"
-                  className={`tour-picker__lesson${done === entry.lessons.length ? " is-done" : ""}`}
-                  data-testid="tour-picker-settings"
-                  aria-label="Settings"
-                  aria-expanded={settingsExpanded}
-                  aria-controls="settings-sublessons"
-                  onClick={() => setSettingsExpanded((expanded) => !expanded)}
-                >
-                  <span className="tour-picker__badge">
-                    {done === entry.lessons.length ? (
-                      <Check size={14} role="img" aria-label="Completed" />
-                    ) : (
-                      index + 1
-                    )}
-                  </span>
-                  <span className="tour-picker__copy">
-                    <strong>Settings</strong>
-                    {recommended && (
-                      <span className="tour-picker__recommended">
-                        Recommended next
+              <section
+                key={section.id}
+                className="tour-picker__section"
+                aria-labelledby={`tour-section-${section.id}`}
+                data-testid={`tour-picker-section-${section.id}`}
+              >
+                <h3 id={`tour-section-${section.id}`}>
+                  <span>{section.title}</span>
+                  <small>
+                    {done === section.lessons.length ? (
+                      <Check size={12} aria-hidden="true" />
+                    ) : null}
+                    {done} / {section.lessons.length} · {minutes} min
+                  </small>
+                </h3>
+                {section.lessons.map((tour) => {
+                  const number = tours.indexOf(tour) + 1;
+                  const lessonDone = completedTourIds.includes(tour.id);
+                  const resumable = suspended?.tourId === tour.id;
+                  return (
+                    <button
+                      key={tour.id}
+                      type="button"
+                      className={`tour-picker__lesson${lessonDone ? " is-done" : ""}`}
+                      data-testid={`tour-picker-${tour.id}`}
+                      onClick={() => onStart(tour.id, resumable)}
+                    >
+                      <span className="tour-picker__badge">
+                        {lessonDone ? (
+                          <Check size={14} role="img" aria-label="Completed" />
+                        ) : (
+                          number
+                        )}
                       </span>
-                    )}
-                    <small>
-                      {done} / {entry.lessons.length} complete · Choose a
-                      settings section
-                    </small>
-                  </span>
-                  <ChevronDown
-                    size={16}
-                    className="tour-picker__expand"
-                    aria-hidden="true"
-                  />
-                </button>
-                {settingsExpanded && (
-                  <div
-                    id="settings-sublessons"
-                    className="tour-picker__children"
-                    role="group"
-                    aria-label="Settings lessons"
-                  >
-                    {entry.lessons.map((lesson, childIndex) =>
-                      renderLesson(lesson, `${index + 1}.${childIndex + 1}`),
-                    )}
-                  </div>
-                )}
-              </div>
+                      <span className="tour-picker__copy">
+                        <strong>{tour.title}</strong>
+                        {resumable ? (
+                          <span className="tour-picker__recommended">
+                            Resume at step {suspended.stepIndex + 1}
+                          </span>
+                        ) : tour.id === recommendedTourId ? (
+                          <span className="tour-picker__recommended">
+                            {completedCount === 0
+                              ? "Recommended first"
+                              : "Recommended next"}
+                          </span>
+                        ) : null}
+                        <small>{tour.summary}</small>
+                      </span>
+                      <span className="tour-picker__duration">
+                        {tour.durationMinutes} min
+                      </span>
+                    </button>
+                  );
+                })}
+              </section>
             );
           })}
         </div>

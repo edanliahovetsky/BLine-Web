@@ -216,9 +216,9 @@ describe("lesson autos folder transfer", () => {
       lesson.steps.map((step) => step.body).join(" ");
     expect(copy(web)).toContain("Export Autos Folder");
     expect(copy(web)).toContain("autos.zip");
-    expect(copy(web)).toContain("saves edits in this browser");
+    expect(copy(web)).toContain("Edits save in this browser only");
     expect(copy(desktop)).toContain("Open Project Folder");
-    expect(copy(desktop)).toContain("edits save directly to the open folder");
+    expect(copy(desktop)).toContain("edits save straight to the open folder");
     expect(copy(desktop)).not.toContain("Import Autos Folder");
     expect(copy(desktop)).not.toContain("Project Archive");
     startPractice();

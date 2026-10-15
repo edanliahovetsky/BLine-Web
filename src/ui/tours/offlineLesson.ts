@@ -6,12 +6,24 @@ export const offlineTour: TourDefinition = {
   title: "How to use BLine offline",
   summary: "Keep editing in your browser without internet",
   durationMinutes: 1,
-  recap: ["Lesson complete."],
+  recap: [
+    "BLine keeps a complete offline copy in this browser.",
+    "Open the same address in the same browser to use it without internet.",
+  ],
   practicePath: createFundamentalsDemoPath,
   steps: [
     {
+      title: "The offline icon",
+      body: "This Wi-Fi-off icon beside Save appears when BLine runs from its offline copy. You can still edit, preview, and save in this browser.",
+      why: "BLine prepares the offline copy automatically while you’re online. Updates download quietly and apply after you save and finish editing.",
+      target: "offline-indicator",
+      visible: ["path-canvas"],
+      prepare: { inspector: "closed", navigator: "closed" },
+    },
+    {
       title: "Same address, same browser",
-      body: "BLine automatically prepares a complete offline copy while you’re online. Open or refresh this same address in the same browser on this device to try the latest version. If the website is unavailable or too slow, BLine opens your last complete offline copy. The Wi-Fi-off icon beside Save tells you when you’re using it. You can edit, simulate, and save locally. Updates download quietly, then each tab reloads automatically after saving and once you finish editing. Bookmark BLine so it’s easy to find. No installation needed.",
+      body: "Bookmark this address and open it in the same browser on this device, with or without internet. No installation needed.",
+      visible: ["path-canvas"],
     },
   ],
 };

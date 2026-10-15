@@ -16,6 +16,7 @@ import { findTour, tourPracticePathName } from "./tours";
 import { tourStore, type TourDefinition, type TourState } from "./tourStore";
 import { readLessonResume, rememberLessonResume } from "./lessonResume";
 import type { ProjectConfig } from "../../core/model/project";
+import { createProjectConfig } from "../../core/config/projectConfig";
 
 interface ActiveTourSession<View> {
   project: ProjectStoreState;
@@ -386,8 +387,8 @@ function withLessonEventKeys(
   config: ProjectConfig | undefined,
   keys: readonly string[] | undefined,
 ): ProjectConfig | undefined {
-  if (!config || !keys?.length) return config;
-  const next = structuredClone(config);
+  if (!keys?.length) return config;
+  const next = structuredClone(config ?? createProjectConfig());
   next.gui.event_trigger_keys = [
     ...new Set([...(next.gui.event_trigger_keys ?? []), ...keys]),
   ];

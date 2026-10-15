@@ -99,7 +99,6 @@ export function TourOverlay({
 
   const cardRef = useRef<HTMLElement | null>(null);
   const restartLessonButtonRef = useRef<HTMLButtonElement>(null);
-  const leaveButtonRef = useRef<HTMLElement | null>(null);
   const preparedStepRef = useRef<string | null>(null);
   const capturedStepTokens = useRef(new Set<string>());
   const [rect, setRect] = useState<TourRect | null>(null);
@@ -126,26 +125,25 @@ export function TourOverlay({
   const confirming =
     confirmation?.token === stepToken ? confirmation.kind : null;
   const collapsed = !!activeTourId && collapsedTour === activeTourId;
-  const cancelConfirmation = useCallback(() => {
-    const kind = confirmation?.kind;
-    setConfirmation(null);
-    // The card must stop being inert before its trigger can receive focus.
-    window.requestAnimationFrame(() =>
-      (kind === "restart"
-        ? restartLessonButtonRef.current
-        : cardRef.current?.querySelector<HTMLElement>(
-            '[data-testid="tour-leave"]',
-          )
-      )?.focus(),
-    );
-  }, [confirmation]);
-  const requestLeave = useCallback(() => {
-    leaveButtonRef.current =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
-    setConfirmation({ token: stepToken, kind: "leave" });
-  }, [stepToken]);
+  const cancelConfirmation = useCallback(
+    (kind: Confirmation) => {
+      setConfirmation(null);
+      // The card must stop being inert before its trigger can receive focus.
+      window.requestAnimationFrame(() =>
+        (kind === "restart"
+          ? restartLessonButtonRef.current
+          : cardRef.current?.querySelector<HTMLElement>(
+              '[data-testid="tour-leave"]',
+            )
+        )?.focus(),
+      );
+    },
+    [setConfirmation],
+  );
+  const requestLeave = useCallback(
+    () => setConfirmation({ token: stepToken, kind: "leave" }),
+    [setConfirmation, stepToken],
+  );
   const feedbackResult =
     feedbackState.token === stepToken ? feedbackState.result : null;
   const feedback = feedbackResult?.message ?? "";
@@ -468,7 +466,7 @@ export function TourOverlay({
         if (event.key === "Escape") {
           event.preventDefault();
           event.stopImmediatePropagation();
-          cancelConfirmation();
+          cancelConfirmation(confirming);
         } else if (
           !["Tab", "Enter", " "].includes(event.key) ||
           !(event.target instanceof Element) ||
@@ -944,7 +942,7 @@ export function TourOverlay({
           description="This resets your practice edits and returns to the first step."
           cancelLabel="Cancel"
           confirmLabel="Restart lesson"
-          onCancel={cancelConfirmation}
+          onCancel={() => cancelConfirmation("restart")}
           onConfirm={() => {
             setConfirmation(null);
             onRestartLesson();
@@ -958,7 +956,7 @@ export function TourOverlay({
           description={`Your original project comes back. Reopen ${tour.title} from Lessons to resume at step ${stepIndex + 1}.`}
           cancelLabel="Keep going"
           confirmLabel="Leave lesson"
-          onCancel={cancelConfirmation}
+          onCancel={() => cancelConfirmation("leave")}
           onConfirm={() => {
             setConfirmation(null);
             tourStore.getState().exit();

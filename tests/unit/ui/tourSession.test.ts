@@ -31,7 +31,7 @@ const definition: TourDefinition = {
   title: "Test Tour",
   summary: "Exercises the isolated practice session",
   durationMinutes: 1,
-  completionMessage: "Tour complete",
+  recap: ["Tour complete", "Practice restored"],
   practicePath: () =>
     createPathModel({
       path_elements: [
@@ -410,6 +410,113 @@ describe("Tour session", () => {
     projects.setState({ legacyMigrationProjectSessionId: null });
     expect(projects.getState().project).toBe(project);
     expect(tours.getState().activeTourId).toBeNull();
+  });
+});
+
+describe("Lesson resume", () => {
+  const steps = [
+    { title: "One", body: "First" },
+    { title: "Two", body: "Second" },
+    {
+      title: "Three",
+      body: "Third",
+      prepare: {
+        practicePath: () =>
+          createPathModel({
+            path_elements: [
+              createTranslationTarget({ x_meters: 9, y_meters: 9 }),
+            ],
+          }),
+      },
+    },
+  ];
+  const lesson: TourDefinition = {
+    ...definition,
+    id: "resume-tour",
+    eventKeys: ["stopIntake"],
+    steps,
+  };
+  function setup() {
+    const projects = createProjectStore();
+    const selections = createSelectionStore();
+    const tours = createTourStore();
+    const controller = createTourSessionController({
+      projects,
+      selections,
+      tours,
+      resolveTour: (id) => (id === lesson.id ? lesson : null),
+      captureView: () => null,
+      showPracticeView: () => {},
+      restoreView: () => {},
+    });
+    return { projects, tours, controller };
+  }
+
+  it("registers the lesson's keys in its practice project", () => {
+    const { projects, controller } = setup();
+    controller.start(lesson.id);
+    expect(projects.getState().project!.config.gui.event_trigger_keys).toEqual([
+      "stopIntake",
+    ]);
+    controller.dispose();
+  });
+
+  it("keeps the step reached and the learner's work when they leave", () => {
+    const { projects, tours, controller } = setup();
+    controller.start(lesson.id);
+    tours.getState().next(3);
+    tours.getState().next(3);
+    const pathId = projects.getState().activePathId!;
+    projects.getState().renamePath(pathId, "Learner edit");
+    tours.getState().exit();
+    expect(tours.getState().suspended).toMatchObject({
+      tourId: lesson.id,
+      stepIndex: 2,
+      furthestStepIndex: 2,
+    });
+    expect(projects.getState().project).toBeNull();
+
+    controller.start(lesson.id, { resume: true });
+    expect(tours.getState()).toMatchObject({
+      activeTourId: lesson.id,
+      stepIndex: 2,
+      suspended: null,
+    });
+    // The resumed step keeps the edit instead of reseeding its path.
+    expect(projects.getState().project!.paths[0].display_name).toBe(
+      "Learner edit",
+    );
+    expect(
+      projects.getState().project!.paths[0].path.path_elements,
+    ).toHaveLength(1);
+    tours.getState().finish();
+    expect(tours.getState()).toMatchObject({
+      suspended: null,
+      finishedTourId: lesson.id,
+    });
+    tours.getState().dismissRecap();
+    expect(tours.getState().finishedTourId).toBeNull();
+    controller.dispose();
+  });
+
+  it("starts over when the learner declines to resume", () => {
+    const { projects, tours, controller } = setup();
+    controller.start(lesson.id);
+    tours.getState().next(3);
+    tours.getState().exit();
+    controller.start(lesson.id);
+    expect(tours.getState().stepIndex).toBe(0);
+    expect(
+      projects.getState().project!.paths[0].path.path_elements,
+    ).toHaveLength(2);
+    controller.dispose();
+  });
+
+  it("does not offer to resume a lesson left on its first step", () => {
+    const tours = createTourStore();
+    tours.getState().start("resume-tour");
+    tours.getState().exit();
+    expect(tours.getState().suspended).toBeNull();
   });
 });
 

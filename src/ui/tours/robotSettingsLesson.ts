@@ -12,7 +12,7 @@ import {
   projectStore,
 } from "../../state/projectStore";
 import { autoVelocityStore } from "../../state/autoVelocityStore";
-import { feedback, pathEventKeys, withEventKeyCaseHint } from "./tourChecks";
+import { feedback, withEventKeyCaseHint } from "./tourChecks";
 import { createEventLessonPath } from "./courseScenarios";
 import { observedTourCondition } from "./tourInteraction";
 import { waypoint, translation } from "./tourScenario";
@@ -33,6 +33,11 @@ const configTask =
   ) =>
   () =>
     feedback(condition(config()), instruction, "Ready to continue.");
+const configCheck = (
+  label: string,
+  condition: (value: CanonicalProjectConfig) => boolean,
+  hint: string,
+) => ({ label, check: () => feedback(condition(config()), hint, "") });
 const closeTo = (value: number, expected: number) =>
   Math.abs(value - expected) < 0.005;
 const navigation = (
@@ -42,7 +47,7 @@ const navigation = (
 ): TourStep =>
   settings({
     title: `Open ${label}`,
-    body: `Choose ${label} in File → Settings. This sublesson uses a fresh practice project and restores your own project when you finish.`,
+    body: `Choose ${label} in the Settings menu. This lesson uses a practice project and restores yours when you finish.`,
     target: `settings-nav-${section}`,
     settingsSection: section,
     settingsNavigateFrom: from,
@@ -105,6 +110,19 @@ function eventPlaced(key: string, segment: number, ratio: number) {
       Math.abs(element.t_ratio - ratio) < 0.015,
   );
 }
+function segmentEvents(segment: number) {
+  const path = activePathForProjectStore(projectStore.getState())?.path;
+  if (!path) return [];
+  const bend = path.path_elements.findIndex(isTranslationTarget);
+  return path.path_elements.flatMap((element, index) =>
+    isEventTrigger(element) &&
+    (segment === 1
+      ? index > 0 && index < bend
+      : index > bend && index < path.path_elements.length - 1)
+      ? [element]
+      : [],
+  );
+}
 function addEvent(key: string, segment: number, ratio: number): TourStep[] {
   const eventCount = () =>
     activePathForProjectStore(
@@ -114,7 +132,7 @@ function addEvent(key: string, segment: number, ratio: number): TourStep[] {
     canvas({
       title:
         segment === 1 ? "Place the extend event" : "Place the retract event",
-      body: `Choose Event and place a trigger ${segment === 1 ? "between Start and the translation target" : "between the translation target and End"}. We’ll set its key and exact position next.`,
+      body: `Choose Event and click the segment ${segment === 1 ? "between Start and the translation target" : "between the translation target and End"}. You’ll set its key and position next.`,
       target: "tool-event",
       interact: ["path-canvas", "tool-event", "tool-select"],
       prepare: {
@@ -134,7 +152,7 @@ function addEvent(key: string, segment: number, ratio: number): TourStep[] {
     }),
     canvas({
       title: segment === 1 ? "Set the extend event" : "Set the retract event",
-      body: `Set Lib Key to ${key} and Event Pos to ${ratio}. ${segment === 1 ? "This matches the Show On Event Key you configured." : "This matches Hide On Event Keys, so the intake retracts before End."}`,
+      body: `Set Lib Key to \`${key}\` and Event Pos to ${ratio}. ${segment === 1 ? "That key matches the Show list you set up." : "That key matches the Hide list, so the intake retracts before End."}`,
       target: "element-properties",
       visible: ["path-canvas", "element-properties"],
       interact: ["inspector-panel", "element-properties"],
@@ -148,19 +166,44 @@ function addEvent(key: string, segment: number, ratio: number): TourStep[] {
             isEventTrigger(element) ? [index] : [],
           )[segment - 1] ?? 0,
       },
-      task: `Set ${key} to ${ratio} on segment ${segment}`,
+      task: `Set \`${key}\` at ${ratio} on segment ${segment}`,
+      checks: [
+        {
+          label: `Lib Key \`${key}\``,
+          check: () => {
+            const keys = segmentEvents(segment).map((event) => event.lib_key);
+            return withEventKeyCaseHint(
+              feedback(
+                keys.some((typed) => typed.trim() === key),
+                segmentEvents(segment).length
+                  ? `Click \`${key}\` to fill the Lib Key field.`
+                  : `The event isn’t on segment ${segment}. Go Back and use Restart step.`,
+                "",
+              ),
+              keys,
+              [key],
+            );
+          },
+        },
+        {
+          label: `Event Pos ${ratio}`,
+          check: () =>
+            feedback(
+              eventPlaced(key, segment, ratio) ||
+                segmentEvents(segment).some(
+                  (event) => Math.abs(event.t_ratio - ratio) < 0.015,
+                ),
+              `Type ${ratio} in Event Pos.`,
+              "",
+            ),
+        },
+      ],
       check: () =>
-        withEventKeyCaseHint(
-          feedback(
-            eventPlaced(key, segment, ratio) &&
-              (segment === 1 || eventPlaced("startIntake", 1, 0.3)),
-            `Set ${key} on segment ${segment} at Event Pos ${ratio}. If you placed it on the wrong segment, go Back and restart the placement step.`,
-            `${key} is ready.`,
-          ),
-          pathEventKeys(
-            activePathForProjectStore(projectStore.getState())?.path,
-          ),
-          [key],
+        feedback(
+          eventPlaced(key, segment, ratio) &&
+            (segment === 1 || eventPlaced("startIntake", 1, 0.3)),
+          "Keep the first event as it was.",
+          `${key} is ready.`,
         ),
     }),
   ];
@@ -181,16 +224,19 @@ export const robotSettingsTour: TourDefinition = {
   id: "robot-settings",
   title: "Robot",
   summary: "Set bumper dimensions and animate protrusions with events",
+  eventKeys: ["startIntake", "stopIntake"],
   durationMinutes: 4,
   recap: [
-    "You configured the robot footprint and animated an extension with event triggers.",
+    "Robot Length and Width set the bumper footprint drawn on the field.",
+    "Protrusions show a mechanism extending and retracting at the event keys you list.",
   ],
   practiceConfig: createProjectConfig,
   practicePath: practiceSettingsPath,
   steps: [
     settings({
       title: "Robot size",
-      body: "Open File → Settings → Robot to set your bumper size and protrusions. This practice project starts with the normal defaults. Robot Length and Width are the outside bumper dimensions shown on the field. Set Length to 0.8 m and Width to 1.2 m, then look at the changed footprint.",
+      body: "Robot Length and Width are the outside bumper dimensions drawn on the field. Set Length to 0.8 m and Width to 1.2 m.",
+      why: "This practice project starts with the default robot, so your own settings are untouched.",
       target: "settings-size",
       settingsSection: "robot",
       prepare: {
@@ -201,23 +247,30 @@ export const robotSettingsTour: TourDefinition = {
         closeMenus: true,
       },
       task: "Set the bumper size to 0.8 × 1.2 m",
-      check: configTask(
-        (c) =>
-          closeTo(c.gui.robot.length_meters, 0.8) &&
-          closeTo(c.gui.robot.width_meters, 1.2),
-        "Set Robot Length to 0.8 and Robot Width to 1.2.",
-      ),
+      checks: [
+        configCheck(
+          "Length 0.8 m",
+          (c) => closeTo(c.gui.robot.length_meters, 0.8),
+          "Type 0.8 in Robot Length.",
+        ),
+        configCheck(
+          "Width 1.2 m",
+          (c) => closeTo(c.gui.robot.width_meters, 1.2),
+          "Type 1.2 in Robot Width.",
+        ),
+      ],
     }),
     canvas({
       title: "See the bumper size",
-      body: "The robot is now wider than it is long. Press Play to see that 0.8 × 1.2 m bumper footprint move along the path. These dimensions help you judge clearance; they do not change the path’s coordinates.",
+      body: "The robot is now wider than it is long. Play the path to watch the 0.8 × 1.2 m footprint move.",
+      why: "Bumper size helps you judge clearance; it doesn’t change the path’s coordinates.",
       target: "simulation-transport",
       task: "Play the resized robot’s path",
       check: playedThrough(),
     }),
     settings({
       title: "Enable protrusions",
-      body: "Back in Robot, protrusions represent mechanisms that extend beyond the bumpers, such as an intake. Turn on Enable Protrusions to configure one.",
+      body: "Protrusions are mechanisms that reach past the bumpers, such as an intake. Turn on Enable Protrusions to set one up.",
       target: "settings-protrusions",
       settingsSection: "robot",
       task: "Turn on Enable Protrusions",
@@ -228,47 +281,66 @@ export const robotSettingsTour: TourDefinition = {
     }),
     settings({
       title: "Set up the extension",
-      body: "Distance is the reach beyond the bumpers; Side is the robot edge it extends from. Set Distance to 0.3 m and Side to front. Choose hidden for Default Protrusion State so the intake starts retracted.",
+      body: "Set Distance to 0.3 m and Side to front, then choose hidden for Default Protrusion State so the intake starts retracted.",
+      why: "Distance is how far the mechanism reaches past the bumpers; Side is the robot edge it extends from.",
       target: "settings-protrusions",
       settingsSection: "robot",
       task: "Set 0.3 m, front, and hidden",
-      check: configTask(
-        (c) =>
-          c.gui.protrusions.enabled &&
-          closeTo(c.gui.protrusions.distance_meters, 0.3) &&
-          c.gui.protrusions.side === "front" &&
-          c.gui.protrusions.default_state === "hidden",
-        "Set Distance to 0.3, Side to front, and Default State to hidden.",
-      ),
+      checks: [
+        configCheck(
+          "Distance 0.3 m",
+          (c) => closeTo(c.gui.protrusions.distance_meters, 0.3),
+          "Type 0.3 in Distance.",
+        ),
+        configCheck(
+          "Side: front",
+          (c) => c.gui.protrusions.side === "front",
+          "Choose front in Side.",
+        ),
+        configCheck(
+          "Starts hidden",
+          (c) => c.gui.protrusions.default_state === "hidden",
+          "Choose hidden in Default Protrusion State.",
+        ),
+      ],
     }),
     settings({
       title: "Connect the event keys",
-      body: "Use + beside Show On Event Keys to add startIntake, then + beside Hide On Event Keys to add stopIntake. Each key has its own field; type a registered key’s prefix and press Tab to complete it, or choose from the suggestions. The ⋯ menu renames, duplicates, or removes that assignment. These lists control the preview extension; your robot code still handles what each event does.",
+      body: "Click + beside Show On Event Keys and add `startIntake`. Then click + beside Hide On Event Keys and add `stopIntake`.",
+      why: "These lists only drive the preview. Your robot code still decides what each event does. The ⋯ menu beside a key renames, duplicates, or removes it.",
       target: "settings-protrusions",
       settingsSection: "robot",
-      task: "Connect startIntake and stopIntake",
-      check: () => {
-        const { show_on_event_keys: show, hide_on_event_keys: hide } =
-          config().gui.protrusions;
-        return withEventKeyCaseHint(
-          configTask(
-            () =>
-              show.includes("startIntake") &&
-              hide.includes("stopIntake") &&
-              !show.includes("stopIntake") &&
-              !hide.includes("startIntake"),
-            "Enter startIntake under Show and stopIntake under Hide.",
-          )(),
-          [...show, ...hide],
-          ["startIntake", "stopIntake"],
-        );
-      },
+      task: "Connect `startIntake` and `stopIntake`",
+      checks: (
+        [
+          ["Show on `startIntake`", "show_on_event_keys", "startIntake"],
+          ["Hide on `stopIntake`", "hide_on_event_keys", "stopIntake"],
+        ] as const
+      ).map(([label, list, key]) => ({
+        label,
+        check: () => {
+          const { protrusions } = config().gui;
+          const other =
+            list === "show_on_event_keys"
+              ? protrusions.hide_on_event_keys
+              : protrusions.show_on_event_keys;
+          return withEventKeyCaseHint(
+            feedback(
+              protrusions[list].includes(key) && !other.includes(key),
+              `Click + beside ${list === "show_on_event_keys" ? "Show" : "Hide"} On Event Keys and click \`${key}\`.`,
+              "",
+            ),
+            protrusions[list],
+            [key],
+          );
+        },
+      })),
     }),
     ...addEvent("startIntake", 1, 0.3),
     ...addEvent("stopIntake", 2, 0.7),
     canvas({
       title: "Watch the intake extend and retract",
-      body: "Press Play. The intake starts hidden, extends at startIntake, and retracts at stopIntake. Watch the front edge of the moving robot as it crosses each event.",
+      body: "The intake starts hidden, extends at `startIntake`, and retracts at `stopIntake`. Watch the robot’s front edge as it crosses each event.",
       target: "simulation-transport",
       task: "Play through both events",
       check: playedThrough(),
@@ -282,7 +354,8 @@ export const pathDefaultsSettingsTour: TourDefinition = {
   summary: "Set default motion limits and end tolerances",
   durationMinutes: 2,
   recap: [
-    "You explored the default motion limits and the tolerances for finishing a path.",
+    "Path Defaults set motion limits wherever a path sets none of its own.",
+    "End tolerances decide how precisely the robot must finish.",
   ],
   practiceConfig: createProjectConfig,
   practicePath: practiceSettingsPath,
@@ -290,32 +363,42 @@ export const pathDefaultsSettingsTour: TourDefinition = {
     navigation("path-defaults", "robot", "Path Defaults"),
     settings({
       title: "Translation defaults",
-      body: "Match Max Velocity and Max Accel to your robot’s real limits as closely as possible. They also limit the generator’s output. They are fallback values wherever a path leaves a limit unspecified; explicit path constraints can override them. For this practice robot, try 4 m/s and 8 m/s². Handoff Radius supplies the intermediate radius when one is unspecified, as in Path Tuning.",
+      body: "Max Velocity and Max Accel apply wherever a path sets no limit of its own. Match your robot’s real limits; for this practice robot, try 4 m/s and 8 m/s².",
+      why: "They also cap what Generate suggests. Handoff Radius fills in any intermediate radius a path leaves unset, as in Path Tuning.",
       target: "settings-translation",
       settingsSection: "path-defaults",
       task: "Try 4 m/s and 8 m/s²",
-      check: configTask(
-        (c) =>
-          closeTo(
-            c.kinematic_constraints.default_max_velocity_meters_per_sec,
-            4,
-          ) &&
-          closeTo(
-            c.kinematic_constraints.default_max_acceleration_meters_per_sec2,
-            8,
-          ),
-        "Set Default Max Velocity to 4 and Default Max Accel to 8.",
-      ),
+      checks: [
+        configCheck(
+          "Max Velocity 4 m/s",
+          (c) =>
+            closeTo(
+              c.kinematic_constraints.default_max_velocity_meters_per_sec,
+              4,
+            ),
+          "Type 4 in Max Velocity.",
+        ),
+        configCheck(
+          "Max Accel 8 m/s²",
+          (c) =>
+            closeTo(
+              c.kinematic_constraints.default_max_acceleration_meters_per_sec2,
+              8,
+            ),
+          "Type 8 in Max Accel.",
+        ),
+      ],
     }),
     settings({
       title: "Rotation defaults",
-      body: "Max Rot Vel and Max Rot Accel are the corresponding heading limits, in degrees per second and degrees per second squared. Match your robot’s turning capability. They also guide generation where no path constraint overrides them. You can try different values here; the rotation-target behavior is the same as in the earlier lesson.",
+      body: "Max Rot Vel and Max Rot Accel are the matching heading limits, in degrees per second and per second squared. Match your robot’s turning ability.",
       target: "settings-rotation",
       settingsSection: "path-defaults",
     }),
     settings({
       title: "End tolerance",
-      body: "End Translation Tolerance and End Rotation Tolerance say how close the robot must be to its final position and heading for the path to finish. Smaller values demand more precise alignment. These concern End; intermediate targets use their handoff radii. Keep the defaults or try adjusting them.",
+      body: "End Translation and Rotation Tolerance set how close the robot must get to its final position and heading to finish. Smaller values demand more precise alignment.",
+      why: "They apply only at End; intermediate targets use their handoff radii.",
       target: "settings-end-tolerance",
       settingsSection: "path-defaults",
     }),
@@ -328,7 +411,8 @@ export const fieldSettingsTour: TourDefinition = {
   summary: "Choose field images and resize a blank practice grid",
   durationMinutes: 2,
   recap: [
-    "You changed the field image, resized a blank grid, and learned how custom images are scaled.",
+    "Field Image changes the background without moving your path.",
+    "A blank grid can be resized to match your practice space.",
   ],
   practiceConfig: createProjectConfig,
   practicePath: practiceSettingsPath,
@@ -336,7 +420,7 @@ export const fieldSettingsTour: TourDefinition = {
     navigation("field", "robot", "Field"),
     settings({
       title: "Choose a competition field",
-      body: "Field Image selects the background for a competition year. Built-in fields are already scaled to meters. Choose Reefscape 2025 to try a different year; in your project, choose the field you’re using.",
+      body: "Field Image sets the background for a competition year, already scaled to meters. Choose Reefscape 2025 to try one.",
       target: "settings-field-image",
       settingsSection: "field",
       task: "Choose Reefscape 2025",
@@ -347,12 +431,13 @@ export const fieldSettingsTour: TourDefinition = {
     }),
     canvas({
       title: "See the new field",
-      body: "The background has changed to Reefscape while your path keeps its meter coordinates. A different field image does not move the targets or check whether your route avoids that year’s obstacles.",
+      body: "The background is now Reefscape, and your path keeps its coordinates in meters.",
+      why: "A new field image doesn’t move your targets or check them against that year’s obstacles.",
       target: "path-canvas",
     }),
     settings({
       title: "Try the blank grid",
-      body: "Blank Meter Grid gives you a neutral space for planning or practice. Its lines are one meter apart. Choose it in Field Image, then we’ll resize the space.",
+      body: "Blank Meter Grid gives you a neutral space with lines one meter apart. Choose it in Field Image.",
       target: "settings-field-image",
       settingsSection: "field",
       task: "Choose Blank Meter Grid",
@@ -363,25 +448,33 @@ export const fieldSettingsTour: TourDefinition = {
     }),
     settings({
       title: "Resize the grid",
-      body: "Field Length is the horizontal span and Field Width is the vertical span. Set Length to 12 m and Width to 6 m. These dimensions resize the grid without scaling the robot or changing path coordinates.",
+      body: "Field Length is the horizontal span and Field Width the vertical one. Set them to 12 m and 6 m.",
+      why: "Resizing the grid doesn’t scale the robot or change path coordinates.",
       target: "settings-field-geometry",
       settingsSection: "field",
       task: "Make a 12 × 6 m practice space",
-      check: configTask(
-        (c) =>
-          closeTo(c.gui.field.grid_size_meters?.length_meters ?? 18, 12) &&
-          closeTo(c.gui.field.grid_size_meters?.width_meters ?? 9, 6),
-        "Set Field Length to 12 and Field Width to 6.",
-      ),
+      checks: [
+        configCheck(
+          "Length 12 m",
+          (c) => closeTo(c.gui.field.grid_size_meters?.length_meters ?? 18, 12),
+          "Type 12 in Field Length.",
+        ),
+        configCheck(
+          "Width 6 m",
+          (c) => closeTo(c.gui.field.grid_size_meters?.width_meters ?? 9, 6),
+          "Type 6 in Field Width.",
+        ),
+      ],
     }),
     canvas({
       title: "See the resized grid",
-      body: "Your practice space is now 12 × 6 m. The path still uses the same coordinates, and each grid square is still one meter. This is useful for a smaller practice area.",
+      body: "Your practice space is now 12 × 6 m. Each square is still one meter, and the path keeps its coordinates.",
       target: "path-canvas",
     }),
     settings({
       title: "Custom field images",
-      body: "For your own practice space, Upload Image adds a background. Give it a name and set its full image length and width in meters. Padding X and Y describe margins between the image edges and the usable field coordinates. You don’t need to upload an image for this lesson.",
+      body: "Upload Image adds your own background. Give it a name and its full length and width in meters. You don’t need to upload one now.",
+      why: "Padding X and Y are the margins between the image edges and the usable field coordinates.",
       target: "settings-field",
       settingsSection: "field",
     }),
@@ -393,14 +486,18 @@ export const generatorSettingsTour: TourDefinition = {
   title: "Generator",
   summary: "Adjust safety factors and control automatic generation",
   durationMinutes: 2,
-  recap: ["You explored generator factors and automatic updates."],
+  recap: [
+    "Safety factors keep generated values below your robot’s limits.",
+    "Keep in sync regenerates as you edit; Manual values are never changed.",
+  ],
   practiceConfig: createProjectConfig,
   practicePath: practiceSettingsPath,
   steps: [
     navigation("optimizer", "robot", "Generator"),
     settings({
       title: "Generator factors",
-      body: "Velocity and Acceleration safety factors reserve margin below the applicable motion limits. A factor of 1 uses the full limit; 0.9 uses 90%. Merge difference combines nearby generated speed caps when their difference is within that many m/s; a larger value produces fewer distinct caps. Try 0.9 for the Velocity safety factor.",
+      body: "Safety factors keep generated values below your limits: 1 uses the full limit, 0.9 uses 90%. Try 0.9 for the Velocity safety factor.",
+      why: "Merge difference combines nearby generated speed caps within that many m/s, so a larger value gives fewer distinct caps.",
       target: "settings-generator",
       settingsSection: "optimizer",
       task: "Try a velocity safety factor of 0.9",
@@ -416,7 +513,8 @@ export const generatorSettingsTour: TourDefinition = {
     }),
     settings({
       title: "Keep generation in sync",
-      body: "Keep in sync updates automatic radii and velocity caps as you edit the path or its limits. With it off, use Generate when you want fresh values. Manual constraints stay under your control. Turn sync off to try manual generation mode.",
+      body: "Keep in sync updates generated radii and speed caps as you edit. With it off, click Generate when you want fresh values. Turn it off.",
+      why: "Manual constraints are never changed by generation either way.",
       target: "settings-generator",
       settingsSection: "optimizer",
       task: "Turn Keep in sync off",
@@ -429,7 +527,7 @@ export const generatorSettingsTour: TourDefinition = {
     }),
     settings({
       title: "Restore automatic updates",
-      body: "Turn Keep in sync back on for automatic generation while editing. These practice settings stay inside this lesson; finishing restores your own project and preferences.",
+      body: "Turn Keep in sync back on. These practice settings stay inside the lesson; finishing restores your own project and preferences.",
       target: "settings-generator",
       settingsSection: "optimizer",
       autoGenerate: undefined,
@@ -443,7 +541,7 @@ export const generatorSettingsTour: TourDefinition = {
     }),
     settings({
       title: "Tune your robot",
-      body: "You’ve explored the generator’s safety factors and sync controls. For your real robot, use its bumper dimensions and measured motion limits, then tune and validate its controllers. Tune Your Robot explains that process in detail. Finish returns to your original project.",
+      body: "For your real robot, use its bumper size and measured motion limits, then tune its controllers. Tune Your Robot walks through it.",
       settingsSection: "optimizer",
       resource: {
         label: "Read Tune Your Robot",
@@ -459,14 +557,15 @@ export const eventTriggerSettingsTour: TourDefinition = {
   summary: "Register, find, and manage reusable Lib Keys",
   durationMinutes: 2,
   recap: [
-    "You registered a reusable key and explored project-wide rename, duplicate, and clear actions.",
+    "Registered Lib Keys are suggested in every path of the project.",
+    "The ⋯ menu renames, duplicates, or deletes a key project-wide.",
   ],
   practiceConfig: createProjectConfig,
   practicePath: createEventLessonPath,
   steps: [
     {
       title: "Open the trigger manager",
-      body: "Lib Keys belong to the project, so you can reuse them across its paths. Open Event Triggers in File → Settings to manage them. This practice path already uses startIntake, so it appears automatically.",
+      body: "Lib Keys belong to the project, so every path can reuse them. Open Event Triggers to manage them; `startIntake` is listed because this path uses it.",
       target: "settings-nav-event-triggers",
       settingsSection: "event-triggers",
       autoGenerate: false,
@@ -486,13 +585,14 @@ export const eventTriggerSettingsTour: TourDefinition = {
     },
     {
       title: "Register a Lib Key",
-      body: "Click +, enter stopIntake, and confirm with the checkmark. Registering a key makes it available in the inspector without adding an event to the path. In your own project, click Save when you finish in Settings; this lesson applies edits to its practice project as you go.",
+      body: "Click +, type `stopIntake`, and click the checkmark. A registered key is suggested in the inspector before any event uses it.",
+      why: "In your own project, click Save when you leave Settings. This lesson applies edits to its practice project as you go.",
       target: "settings-event-triggers",
       settingsSection: "event-triggers",
       autoGenerate: false,
       visible: ["settings-dialog"],
       interact: ["settings-event-triggers"],
-      task: "Register stopIntake",
+      task: "Register `stopIntake`",
       check: () =>
         feedback(
           config().gui.event_trigger_keys?.includes("stopIntake") ?? false,
@@ -502,7 +602,7 @@ export const eventTriggerSettingsTour: TourDefinition = {
     },
     {
       title: "Find a registered key",
-      body: "Type stop into the search field beside the magnifying glass. The list filters as you type. Each row shows how many event trigger elements use its key across this project's paths; stopIntake has no uses yet.",
+      body: "Type stop in the search field. The list filters as you type, and each row counts the events using its key.",
       target: "settings-event-triggers",
       settingsSection: "event-triggers",
       autoGenerate: false,
@@ -523,7 +623,8 @@ export const eventTriggerSettingsTour: TourDefinition = {
     },
     {
       title: "Manage registered keys",
-      body: "Open the ⋯ menu beside stopIntake. Rename All replaces that key in every path and protrusion setting in the project. Duplicate registers a new key without copying event elements. Delete removes the registration and clears matching Lib Keys, leaving the event elements in place. These edits can be undone. In the inspector, type part of a registered key and press Tab, or choose a suggestion with the arrow keys or pointer.",
+      body: "Open the ⋯ menu beside `stopIntake`. Rename All changes the key everywhere, Duplicate registers a copy, and Delete clears it from events. All can be undone.",
+      why: "Delete removes the registration and clears matching Lib Keys, but leaves the event elements in place. In the inspector, type part of a key and press Tab to complete it.",
       target: "settings-event-triggers",
       settingsSection: "event-triggers",
       autoGenerate: false,

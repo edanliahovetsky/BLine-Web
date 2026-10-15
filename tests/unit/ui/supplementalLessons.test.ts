@@ -4,7 +4,13 @@ import { getPathElementLinkedTargetId } from "../../../src/core/linkedTargets";
 import { createProject, type Project } from "../../../src/core/model/project";
 import { isWaypoint } from "../../../src/core/model/path";
 import { projectStore } from "../../../src/state/projectStore";
-import { supplementalTours } from "../../../src/ui/tours/supplementalLessons";
+import {
+  advancedTours,
+  importExportTour,
+} from "../../../src/ui/tours/supplementalLessons";
+import { assessTourStep } from "../../../src/ui/tours/tourInteraction";
+
+const supplementalTours = [importExportTour, ...advancedTours];
 import {
   createLinkedElementGroups,
   createLinkedElementPaths,
@@ -37,9 +43,13 @@ function practice(paths = createManagementPaths()) {
 }
 
 function check(lesson: string, step: string) {
+  return assessTourStep(lessonStep(lesson, step)).complete;
+}
+
+function lessonStep(lesson: string, step: string) {
   return supplementalTours
     .find((tour) => tour.id === lesson)!
-    .steps.find((candidate) => candidate.title === step)!.check!().complete;
+    .steps.find((candidate) => candidate.title === step)!;
 }
 
 beforeEach(() => {
@@ -58,10 +68,10 @@ describe("supplemental lessons", () => {
       ["import-export", "Importing and Exporting"],
       ["path-management", "Path Management"],
       ["use-bline-offline", "How to use BLine offline"],
-      ["current-pose-start", "Advanced — Current-pose Starts"],
-      ["handoff-modes", "Advanced — Handoff Modes"],
-      ["linked-elements", "Advanced — Linked Elements"],
-      ["path-linking", "Advanced — Path Linking"],
+      ["current-pose-start", "Current-pose Starts"],
+      ["handoff-modes", "Handoff Modes"],
+      ["linked-elements", "Linked Elements"],
+      ["path-linking", "Path Linking"],
     ]);
     const paths = createManagementPaths();
     expect(paths.map((path) => path.display_name)).toEqual([
@@ -85,14 +95,11 @@ describe("supplemental lessons", () => {
     expect(createManagementPaths()[0].path.path_elements).toHaveLength(3);
     for (const lesson of supplementalTours) {
       if (lesson.id === "use-bline-offline") {
-        expect(lesson.steps).toHaveLength(1);
-        expect(lesson.steps[0].check).toBeUndefined();
+        expect(lesson.steps[0].target).toBe("offline-indicator");
+        expect(lesson.steps.every((step) => !step.check)).toBe(true);
         continue;
       }
-      expect(lesson.steps.some((step) => step.check)).toBe(true);
-      expect(lesson.steps.every((step) => !step.check || !!step.task)).toBe(
-        true,
-      );
+      expect(lesson.steps.some((step) => step.check || step.checks)).toBe(true);
     }
   });
 
@@ -297,14 +304,14 @@ describe("supplemental lessons", () => {
     expect(check("path-linking", title)).toBe(false);
     const lessonCopy = supplementalTours
       .find((tour) => tour.id === "path-linking")!
-      .steps.map((step) => step.body)
+      .steps.map((step) => `${step.body} ${step.why ?? ""}`)
       .join(" ");
     expect(lessonCopy).toContain("prevents the robot from slowing to a stop");
     expect(lessonCopy).toContain(
       "Run the next path immediately after the first in your robot code",
     );
     expect(lessonCopy).toContain("This preview plays one path at a time");
-    expect(lessonCopy).toContain("1.5 m/s minimum is your chosen entry speed");
+    expect(lessonCopy).toContain("drag it down to the bottom cell, beside End");
     expect(lessonCopy).toContain("smooth, unbroken transition");
   });
 });

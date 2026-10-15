@@ -34,11 +34,12 @@ const activePath = () => {
 const webSteps: TourStep[] = [
   {
     title: "Export an autos folder",
-    body: "Open File, then Import / Export, and choose Export Autos Folder. Save this two-path practice auto in a spare folder. Your browser either asks for a destination or downloads autos.zip. Unzip it if needed.",
+    task: "Export the practice autos folder",
+    body: "Open File → Import / Export and choose Export Autos Folder. Save it in a spare folder; if your browser downloads autos.zip instead, unzip it.",
     target: "export-menu-entry",
     visible: ["path-canvas"],
     interact: fileMenus,
-    task: "Export the practice autos folder",
+    showMe: ["export-menu-entry", "top-menu-project-transfer"],
     prepare: { navigator: "closed", inspector: "closed", simulation: "start" },
     check: () =>
       feedback(
@@ -49,10 +50,11 @@ const webSteps: TourStep[] = [
   },
   {
     title: "Import the autos folder",
-    body: "Choose File, Import / Export, then Import Autos Folder. Select the autos folder you just saved or unzipped. It contains config.json, the paths folder, and project.json for names and groups. This lesson imports into your practice project.",
+    task: "Import the autos folder you saved",
+    body: "Choose File → Import / Export → Import Autos Folder and pick the folder you just saved. It holds config.json, a paths folder, and project.json.",
+    why: "This lesson imports into its practice project, so your own work is untouched.",
     target: "export-menu-entry",
     interact: [...fileMenus, "lesson-import-folder"],
-    task: "Import the exported autos folder",
     check: () => {
       const failure = currentPracticeTransferError();
       return failure && !hasAction("importFolder")
@@ -69,11 +71,11 @@ const webSteps: TourStep[] = [
   },
   {
     title: "Check the imported paths",
-    body: "Use the path dropdown to select Score to Pickup, then press Play. Importing an autos folder brings in all its paths and shared settings together.",
+    task: "Select Score to Pickup and press Play",
+    body: "Importing a folder brings in all its paths and shared settings together.",
     target: "path-breadcrumb",
     visible: ["path-canvas", "simulation-transport"],
     interact: ["path-breadcrumb", "path-canvas", ...playback],
-    task: "Select Score to Pickup and play it",
     prepare: { navigator: "closed", simulation: "start", closeMenus: true },
     check: () =>
       feedback(
@@ -86,7 +88,8 @@ const webSteps: TourStep[] = [
   },
   {
     title: "Save changes for your robot",
-    body: "The web app saves edits in this browser. To update files on disk, export the autos folder again. Put it in your robot project at src/main/deploy/autos, then deploy your robot code. Importing a folder does not keep it synced with the browser.",
+    body: "Edits save in this browser only. To update the robot, export again into src/main/deploy/autos in your robot project, then deploy.",
+    why: "An imported folder is a copy; it doesn’t stay in sync with the files on disk.",
     visible: ["path-canvas"],
     prepare: { closeMenus: true },
   },
@@ -101,7 +104,8 @@ function desktopSteps(): TourStep[] {
   return [
     {
       title: "Open an autos folder on desktop",
-      body: "On desktop, use File, Folder, then Open Project Folder to work with an existing autos folder. Create Project Folder starts a new one. For this practice lesson, just expand Folder to find these commands.",
+      task: "Open File and expand Folder",
+      body: "On desktop, Open Project Folder works directly in an existing autos folder, and Create Project Folder starts a new one.",
       target: "export-menu-entry",
       visible: ["path-canvas"],
       interact: [
@@ -109,7 +113,6 @@ function desktopSteps(): TourStep[] {
         "export-menu-panel",
         "top-menu-project-folder",
       ],
-      task: "Open File and expand Folder",
       prepare: { navigator: "closed", inspector: "closed" },
       check: () =>
         feedback(
@@ -120,11 +123,11 @@ function desktopSteps(): TourStep[] {
     },
     {
       title: "Edit a path in the folder",
-      body: "An open folder holds all your paths and shared settings. Select End on Start to Score and change its X position. These practice edits stay inside the lesson.",
+      task: "Change End’s X position",
+      body: "An open folder holds every path and shared setting. End on Start to Score is selected; change its X. Practice edits stay inside the lesson.",
       target: "element-properties",
       visible: ["path-canvas"],
       interact: ["inspector-panel", "element-properties", "path-canvas"],
-      task: "Change End’s X position",
       prepare: {
         inspector: "open",
         inspectorTab: "elements",
@@ -145,12 +148,12 @@ function desktopSteps(): TourStep[] {
     },
     {
       title: "Preview before deploying",
-      body: "Press Play to check your edited path. In a normal desktop project, edits save directly to the open folder. Check the save status before deploying; you do not need to export the folder after every edit.",
+      task: "Play the edited path",
+      body: "In a desktop project, edits save straight to the open folder. Check the save status before you deploy; there’s no need to export.",
       target: "transport-play",
       visible: ["path-canvas"],
       interact: playback,
       prepare: { inspector: "closed", simulation: "start" },
-      task: "Play the edited path",
       check: () =>
         feedback(
           hasAction("play"),
@@ -160,7 +163,7 @@ function desktopSteps(): TourStep[] {
     },
     {
       title: "Use the folder in your robot project",
-      body: "Keep your autos folder at src/main/deploy/autos in the robot project. Working in that folder keeps the files ready for your next robot-code deploy. To share or move the auto, copy the whole autos folder, including config.json, paths, and project.json.",
+      body: "Keep the autos folder at src/main/deploy/autos in your robot project. To share it, copy the whole folder: config.json, paths, and project.json.",
       visible: ["path-canvas"],
     },
   ];
@@ -177,7 +180,16 @@ export function createImportExportTour(
         ? "Open an autos folder and save edits directly on desktop"
         : "Move autos folders between your browser and robot project",
     durationMinutes: 3,
-    recap: ["Lesson complete."],
+    recap:
+      shell === "tauri"
+        ? [
+            "On desktop, open your autos folder and edit it in place.",
+            "Keep it at src/main/deploy/autos so each deploy uses your latest paths.",
+          ]
+        : [
+            "Export and import whole autos folders from File → Import / Export.",
+            "Export into src/main/deploy/autos, then deploy, to update the robot.",
+          ],
     markers: organizationMarkers,
     practicePath: () => createTransferPaths()[0].path,
     practicePaths: createTransferPaths,

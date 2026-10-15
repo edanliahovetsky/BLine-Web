@@ -1,9 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   captureTourStepState,
-  foundationalTours,
+  findTour,
   tourPathIntent,
+  tourSections,
+  tours,
 } from "../../../src/ui/tours/tours";
+import { assessTourStep } from "../../../src/ui/tours/tourInteraction";
+import { plainLessonText } from "../../../src/ui/tours/lessonKeyChips";
 import {
   createEventLessonPath,
   createFastRotationPath,
@@ -61,49 +65,75 @@ afterEach(() => {
 });
 
 describe("foundational lesson content", () => {
-  it("keeps the foundational lessons in order before settings sublessons", () => {
-    expect(foundationalTours.map((tour) => tour.title)).toEqual([
-      "Getting Started",
-      "BLine Fundamentals",
-      "Path Tuning",
-      "Rotation targets",
-      "Event triggers",
+  it("groups lessons into Core, Settings, and Advanced in recommended order", () => {
+    expect(
+      tourSections.map((section) => [
+        section.title,
+        section.lessons.map((tour) => tour.title),
+      ]),
+    ).toEqual([
+      [
+        "Core",
+        [
+          "Getting Started",
+          "BLine Fundamentals",
+          "Event triggers",
+          "Importing and Exporting",
+        ],
+      ],
+      [
+        "Settings",
+        ["Robot", "Path Defaults", "Field", "Generator", "Event Triggers"],
+      ],
+      [
+        "Advanced",
+        [
+          "Path Tuning",
+          "Rotation targets",
+          "Path Management",
+          "How to use BLine offline",
+          "Current-pose Starts",
+          "Handoff Modes",
+          "Linked Elements",
+          "Path Linking",
+        ],
+      ],
     ]);
-    for (const tour of foundationalTours) {
+    expect(new Set(tours.map((tour) => tour.id)).size).toBe(tours.length);
+  });
+
+  it("keeps lesson copy short, task-led, and recapped", () => {
+    for (const tour of tours) {
       expect(tour.durationMinutes).toBeGreaterThan(0);
+      expect(tour.recap.length, tour.id).toBeGreaterThanOrEqual(2);
+      expect(tour.recap.length, tour.id).toBeLessThanOrEqual(3);
       for (const step of tour.steps) {
-        if (step.check) expect(step.task).toBeTruthy();
-        expect(step.experiment).toBeUndefined();
-        expect(step.demo).toBeUndefined();
-        expect(step.handoff).toBeUndefined();
-        expect(step.captureReference).toBeUndefined();
+        const words = plainLessonText(step.body).split(/\s+/).length;
+        expect(words, `${tour.id}: ${step.title}`).toBeLessThanOrEqual(35);
+        if (step.check || step.checks)
+          expect(step.task, `${tour.id}: ${step.title}`).toBeTruthy();
+        expect(step.body).not.toMatch(/Open File → Settings/);
       }
     }
   });
 
   it("briefly opens the overview panels and menus without editing their contents", () => {
-    const overview = foundationalTours[0];
+    const overview = findTour("getting-started")!;
     expect(overview.practicePaths?.()).toHaveLength(9);
     expect(
       overview.practiceGroups?.().map((group) => group.display_name),
     ).toEqual(["Testing", "Top Side Auto", "Bottom Side Auto"]);
     expect(overview.practiceLinkedTargets?.()).toHaveLength(7);
     expect(overview.steps.map((step) => step.title)).toEqual([
-      "Canvas",
-      "Toolbar",
+      "The editor at a glance",
       "Sidebar",
-      "Elements",
-      "Constraints",
-      "Play bar",
-      "File menu",
-      "Edit actions",
-      "Edit menu",
+      "Menus",
       "Path dropdown",
       "Path Groups",
     ]);
-    for (const step of overview.steps.filter((candidate) => candidate.check)) {
-      expect(step.interact).toHaveLength(1);
-    }
+    expect(
+      overview.steps.find((step) => step.title === "Sidebar")?.checks,
+    ).toHaveLength(3);
   });
 
   it("introduces all element types in the demo and then starts from an empty build", () => {
@@ -114,9 +144,7 @@ describe("foundational lesson content", () => {
     expect(
       demo.path_elements.filter((element) => element.type === "event_trigger"),
     ).toHaveLength(1);
-    const fundamentals = foundationalTours.find(
-      (tour) => tour.id === "bline-fundamentals",
-    )!;
+    const fundamentals = findTour("bline-fundamentals")!;
     const placement = fundamentals.steps.find(
       (step) => step.title === "Place Start and End",
     )!;
@@ -124,7 +152,6 @@ describe("foundational lesson content", () => {
     const explore = fundamentals.steps.find(
       (step) => step.title === "Try more route points",
     )!;
-    expect(explore.elements).toBeUndefined();
     expect(explore.check).toBeUndefined();
     expect(explore.lockInteractionOnComplete).toBeUndefined();
     expect(explore.interact).toEqual(
@@ -138,9 +165,7 @@ describe("foundational lesson content", () => {
   });
 
   it("keeps the handoff sequence on the existing canvas and changes only acceleration for the wider turn", () => {
-    const steps = foundationalTours.find(
-      (tour) => tour.id === "path-tuning",
-    )!.steps;
+    const steps = findTour("path-tuning")!.steps;
     expect(steps.slice(0, 4).map((step) => step.canvasLesson)).toEqual([
       "handoff-approach",
       "handoff-crossing",
@@ -199,9 +224,7 @@ describe("foundational lesson content", () => {
         ),
     ).toBe(true);
     expect(autoVelocityStatusForPath(path, practiceConfig()).stale).toBe(true);
-    const steps = foundationalTours.find(
-      (tour) => tour.id === "path-tuning",
-    )!.steps;
+    const steps = findTour("path-tuning")!.steps;
     const rectangleIndex = steps.findIndex(
       (step) => step.title === "A new route to tune",
     );
@@ -271,63 +294,85 @@ describe("foundational lesson content", () => {
         reason: "insufficient-time",
       }),
     );
-    const profile = foundationalTours
-      .find((tour) => tour.id === "rotation-targets")!
-      .steps.find((step) => step.title === "Try Profiled Rotation")!;
-    expect(profile.body).toContain("target heading changes gradually");
-    expect(profile.body).toContain("Turn it off");
+    const profile = findTour("rotation-targets")!.steps.find(
+      (step) => step.title === "Try Profiled Rotation",
+    )!;
+    expect(profile.body).toContain("spreads the turn along the path");
+    expect(profile.checks?.map((check) => check.label)).toEqual([
+      "Profiled Rotation off",
+      "Played the path",
+    ]);
   });
 
   it("requires the new event key and ratio on the second segment", () => {
     const path = createEventLessonPath();
-    const step = foundationalTours
-      .find((tour) => tour.id === "event-triggers")!
-      .steps.find(
-        (candidate) => candidate.title === "Add an event on the next segment",
-      )!;
+    const step = findTour("event-triggers")!.steps.find(
+      (candidate) => candidate.title === "Add an event on the next segment",
+    )!;
     loadPractice(path);
-    expect(step.check?.().complete).toBe(false);
+    expect(assessTourStep(step).items?.map((item) => item.complete)).toEqual([
+      false,
+      false,
+      false,
+    ]);
+    // stopIntake on the first segment does not count.
     path.path_elements.splice(
       1,
       0,
       createEventTrigger({ lib_key: "stopIntake", t_ratio: 0.6 }),
     );
     loadPractice(path);
-    expect(step.check?.().complete).toBe(false);
+    expect(assessTourStep(step).complete).toBe(false);
     path.path_elements.splice(1, 1);
     path.path_elements.splice(
       3,
       0,
-      createEventTrigger({ lib_key: "stopIntake", t_ratio: 0.6 }),
+      createEventTrigger({ lib_key: "", t_ratio: 0.42 }),
     );
     // Project creation copies the path so write the changed exercise into the store.
     loadPractice(path);
-    expect(step.check?.().complete).toBe(true);
-    const original = path.path_elements[1];
-    path.path_elements.splice(1, 1);
-    loadPractice(path);
-    expect(step.check?.().complete).toBe(false);
-    path.path_elements.splice(1, 0, original);
+    expect(assessTourStep(step).items).toEqual([
+      { label: "Placed on segment 2", complete: true, hint: "" },
+      {
+        label: "Event Pos 0.6",
+        complete: false,
+        hint: "Type 0.6 in Event Pos (now 0.42).",
+      },
+      {
+        label: "Lib Key `stopIntake`",
+        complete: false,
+        hint: "Click `stopIntake` to fill the Lib Key field.",
+      },
+    ]);
     const added = path.path_elements[3];
-    if (added.type === "event_trigger") added.t_ratio = 0.3;
+    if (added.type === "event_trigger") {
+      added.t_ratio = 0.6;
+      added.lib_key = "stopIntake";
+    }
     loadPractice(path);
-    expect(step.check?.().complete).toBe(false);
+    expect(assessTourStep(step).complete).toBe(true);
+  });
+
+  it("registers the keys its lessons ask for", () => {
+    expect(findTour("event-triggers")?.eventKeys).toEqual([
+      "startIntake",
+      "stopIntake",
+    ]);
+    expect(robotSettingsTour.eventKeys).toEqual(["startIntake", "stopIntake"]);
   });
 
   it("keeps lesson keys exact but explains a capitalization miss", () => {
     const path = createEventLessonPath();
-    const step = foundationalTours
-      .find((tour) => tour.id === "event-triggers")!
-      .steps.find(
-        (candidate) => candidate.title === "Add an event on the next segment",
-      )!;
+    const step = findTour("event-triggers")!.steps.find(
+      (candidate) => candidate.title === "Add an event on the next segment",
+    )!;
     path.path_elements.splice(
       3,
       0,
       createEventTrigger({ lib_key: "stopintake", t_ratio: 0.6 }),
     );
     loadPractice(path);
-    expect(step.check?.()).toEqual({
+    expect(assessTourStep(step)).toMatchObject({
       complete: false,
       message:
         'Keys are case-sensitive — you typed "stopintake"; use "stopIntake".',
@@ -335,7 +380,7 @@ describe("foundational lesson content", () => {
     const typed = path.path_elements[3];
     if (typed.type === "event_trigger") typed.lib_key = "stopIntake";
     loadPractice(path);
-    expect(step.check?.().complete).toBe(true);
+    expect(assessTourStep(step).complete).toBe(true);
   });
 
   it("explains capitalization misses in the Robot lesson's key checks", () => {
@@ -353,21 +398,19 @@ describe("foundational lesson content", () => {
     const project = projectStore.getState().project!;
     project.config.gui.protrusions.show_on_event_keys = ["startintake"];
     project.config.gui.protrusions.hide_on_event_keys = ["stopIntake"];
-    expect(connect.check?.().message).toBe(
+    expect(assessTourStep(connect).message).toBe(
       'Keys are case-sensitive — you typed "startintake"; use "startIntake".',
     );
     project.config.gui.protrusions.show_on_event_keys = ["startIntake"];
-    expect(connect.check?.().complete).toBe(true);
-    expect(setExtend.check?.().message).toBe(
+    expect(assessTourStep(connect).complete).toBe(true);
+    expect(assessTourStep(setExtend).message).toBe(
       'Keys are case-sensitive — you typed "StartIntake"; use "startIntake".',
     );
   });
 
   it("unlocks demo Continue after Play without requiring the learner to finish the run", () => {
     vi.stubGlobal("document", { querySelector: () => null });
-    const tour = foundationalTours.find(
-      (tour) => tour.id === "bline-fundamentals",
-    )!;
+    const tour = findTour("bline-fundamentals")!;
     tourStore.getState().start(tour.id);
     loadPractice(tour.practicePath());
     captureTourStepState();

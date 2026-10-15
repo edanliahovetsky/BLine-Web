@@ -27,6 +27,7 @@ export function StartCenter({
   onOpenRecent,
   onOpenSample,
   onOpenLessons,
+  onStartFirstLesson,
   onRetryInitialization,
 }: {
   initializing: boolean;
@@ -42,9 +43,13 @@ export function StartCenter({
   onOpenRecent(id: string): void;
   onOpenSample(): void;
   onOpenLessons(): void;
+  onStartFirstLesson(): void;
   onRetryInitialization(): void;
 }) {
   const actionsDisabled = initializing || initializationError !== null;
+  // A first visit gets the first lesson beside Create project.
+  const newcomer =
+    !initializing && !initializationError && recentWorkspaces.length === 0;
 
   return (
     <section
@@ -86,6 +91,19 @@ export function StartCenter({
             <Plus aria-hidden="true" size={17} />
             <span>Create project</span>
           </button>
+          {newcomer ? (
+            <button
+              type="button"
+              className="start-center__action is-lesson"
+              data-testid="start-center-first-lesson"
+              onClick={onStartFirstLesson}
+            >
+              <span className="start-center__emoji" aria-hidden="true">
+                🧭
+              </span>
+              <span>Start the first lesson</span>
+            </button>
+          ) : null}
           <button
             type="button"
             className="start-center__action"

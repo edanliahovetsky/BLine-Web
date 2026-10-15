@@ -4,7 +4,8 @@ import { useControlTooltip } from "../controls";
 
 const description = "BLine is running from this browser’s offline copy.";
 
-export function OfflineIndicator() {
+/** `lesson` shows the icon in place so the offline lesson can point at it. */
+export function OfflineIndicator({ lesson = false }: { lesson?: boolean }) {
   const { triggerProps, tooltip } = useControlTooltip(description);
   const servedOffline =
     import.meta.env.PROD &&
@@ -12,13 +13,14 @@ export function OfflineIndicator() {
     document.querySelector<HTMLMetaElement>('meta[name="bline-offline"]')
       ?.content === "true";
 
-  if (!servedOffline) return null;
+  if (!servedOffline && !lesson) return null;
   return (
     <>
       <span
         {...triggerProps}
         className="workspace-status__offline"
         data-testid="offline-indicator"
+        data-tour="offline-indicator"
         role="img"
         aria-label={description}
         tabIndex={0}
