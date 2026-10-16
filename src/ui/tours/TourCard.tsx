@@ -222,6 +222,8 @@ export function WhyToggle({ text, token }: { text: string; token: string }) {
     <div className="tour-card__why">
       <button
         type="button"
+        data-tour-passive
+        onMouseDown={(event) => event.preventDefault()}
         aria-expanded={open}
         onClick={() => setOpenToken(open ? null : token)}
       >

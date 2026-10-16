@@ -354,7 +354,7 @@ describe("foundational lesson content", () => {
     expect(profile.body).toContain("the turn spreads along the path");
     expect(profile.checks?.map((check) => check.label)).toEqual([
       "Profiled Rotation off",
-      "Played the path",
+      "Played it",
     ]);
   });
 

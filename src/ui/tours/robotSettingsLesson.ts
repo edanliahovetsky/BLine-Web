@@ -14,7 +14,13 @@ import {
 } from "../../state/projectStore";
 import { autoVelocityStore } from "../../state/autoVelocityStore";
 import { selectionStore } from "../../state/selectionStore";
-import { feedback, withEventKeyCaseHint } from "./tourChecks";
+import {
+  eventPosHint,
+  feedback,
+  firstSeen,
+  withEventKeyCaseHint,
+  wrongStretchHint,
+} from "./tourChecks";
 import { createEventLessonPath } from "./courseScenarios";
 import { observedTourCondition } from "./tourInteraction";
 import { waypoint, translation } from "./tourScenario";
@@ -151,6 +157,7 @@ function addEvent(key: string, segment: 1 | 2, ratio: number): TourStep {
   };
   const eventCount = () =>
     currentPath()?.path_elements.filter(isEventTrigger).length ?? 0;
+  const posHint = eventPosHint();
   return canvas({
     title: segment === 1 ? "Add the extend event" : "Add the retract event",
     task: `Add \`${key}\` at ${ratio} between ${between}`,
@@ -191,9 +198,7 @@ function addEvent(key: string, segment: 1 | 2, ratio: number): TourStep {
         check: () =>
           feedback(
             stretchEvents(segment).length > 0,
-            eventCount() > segment - 1
-              ? `That one landed on the wrong stretch. Undo it (⌘Z or Ctrl+Z) and click between ${between}.`
-              : "",
+            eventCount() > segment - 1 ? wrongStretchHint(between) : "",
             "",
           ),
       },
@@ -222,18 +227,12 @@ function addEvent(key: string, segment: 1 | 2, ratio: number): TourStep {
         label: `Event Pos ${ratio}`,
         showMe: [openInspector, selectEvent, "lesson-event-pos"],
         check: () => {
-          const placed = stretchEvents(segment).at(-1)?.element.t_ratio;
+          const placed = stretchEvents(segment).at(-1);
           return feedback(
             stretchEvents(segment).some(
               ({ element }) => Math.abs(element.t_ratio - ratio) < 0.015,
             ),
-            placed === undefined
-              ? ""
-              : placed <= 0 || placed >= 1
-                ? `Event Pos runs from 0 to 1. Type ${ratio}.`
-                : Math.abs(placed - ratio) < 0.15
-                  ? `Close: it’s ${placed.toFixed(2)}. Type exactly ${ratio}.`
-                  : "",
+            posHint(placed?.index, placed?.element.t_ratio, ratio),
             "",
           );
         },
@@ -304,7 +303,7 @@ export const robotSettingsTour: TourDefinition = {
     canvas({
       title: "See the bumper size",
       task: "Play the resized robot’s path",
-      body: "The robot is now wider than it is long.",
+      body: "The robot is now wider than it is long. Let it run to End.",
       why: "Bumper size helps you judge clearance; it doesn’t change the path’s coordinates.",
       target: "simulation-transport",
       showMe: [{ target: "transport-play" }],
@@ -334,6 +333,10 @@ export const robotSettingsTour: TourDefinition = {
           "Side: Front",
           "Protrusion Side",
           (c) => c.gui.protrusions.side === "front",
+          (c) =>
+            ["back", "left", "right"].includes(c.gui.protrusions.side)
+              ? `That’s the ${c.gui.protrusions.side}. Choose Front.`
+              : "",
         ),
         configCheck(
           "Starts Hidden",
@@ -357,7 +360,14 @@ export const robotSettingsTour: TourDefinition = {
       ).map(([label, list, key]) => ({
         label,
         showMe: [
-          `label:Add ${list === "show_on_event_keys" ? "show" : "hide"} event key`,
+          {
+            target: `label:Add ${list === "show_on_event_keys" ? "show" : "hide"} event key`,
+            done: () =>
+              shown(
+                `[aria-label="${list === "show_on_event_keys" ? "Show" : "Hide"} event key 1"]`,
+              ),
+          },
+          `label:${list === "show_on_event_keys" ? "Show" : "Hide"} event key 1`,
         ],
         check: () => {
           const { protrusions } = config().gui;
@@ -464,7 +474,7 @@ export const fieldSettingsTour: TourDefinition = {
       showMe: [{ target: "settings-field-select" }],
       check: configTask(
         (c) => c.gui.field.selected_field_id === "frc2025-reefscape",
-        "Only the background changed; your path kept its place.",
+        "Only the background changes; your path stays where it was.",
       ),
     }),
     settings({
@@ -484,8 +494,15 @@ export const fieldSettingsTour: TourDefinition = {
       target: "settings-field-geometry",
       settingsSection: "field",
       checks: [
-        configCheck("Length 12 m", "Field Length (m)", (c) =>
-          closeTo(c.gui.field.grid_size_meters?.length_meters ?? 18, 12),
+        configCheck(
+          "Length 12 m",
+          "Field Length (m)",
+          (c) => closeTo(c.gui.field.grid_size_meters?.length_meters ?? 18, 12),
+          (c) =>
+            closeTo(c.gui.field.grid_size_meters?.length_meters ?? 18, 6) &&
+            closeTo(c.gui.field.grid_size_meters?.width_meters ?? 9, 12)
+              ? "Swap them: Length 12, Width 6."
+              : "",
         ),
         configCheck("Width 6 m", "Field Width (m)", (c) =>
           closeTo(c.gui.field.grid_size_meters?.width_meters ?? 9, 6),
@@ -502,6 +519,7 @@ export const fieldSettingsTour: TourDefinition = {
   ],
 };
 
+const startingFactor = firstSeen<number>();
 const syncTurnedOff = observedTourCondition(
   () => !autoVelocityStore.getState().autoSyncEnabled,
 );
@@ -527,12 +545,20 @@ export const generatorSettingsTour: TourDefinition = {
       target: "settings-generator",
       settingsSection: "optimizer",
       showMe: [{ target: "label:Velocity safety factor" }],
-      check: configTask((c) =>
-        closeTo(
-          c.kinematic_constraints.default_auto_velocity_velocity_safety_factor,
-          0.9,
-        ),
-      ),
+      check: () => {
+        const factor =
+          config().kinematic_constraints
+            .default_auto_velocity_velocity_safety_factor;
+        // 90 is clamped to 1; only flag it once the learner has typed.
+        const typed = factor !== startingFactor("factor", factor);
+        return feedback(
+          closeTo(factor, 0.9),
+          typed && closeTo(factor, 1)
+            ? "Use a fraction: type 0.9, not 90."
+            : "",
+          "",
+        );
+      },
     }),
     settings({
       title: "Keep generation in sync",
@@ -570,6 +596,13 @@ export const generatorSettingsTour: TourDefinition = {
       },
     }),
   ],
+};
+
+const stopIntakeVariant = () => {
+  const keys = config().gui.event_trigger_keys ?? [];
+  return keys.includes("stopIntake")
+    ? undefined
+    : keys.find((key) => key.toLocaleLowerCase() === "stopintake");
 };
 
 export const eventTriggerSettingsTour: TourDefinition = {
@@ -616,18 +649,22 @@ export const eventTriggerSettingsTour: TourDefinition = {
       interact: ["settings-event-triggers"],
       showMe: [
         {
-          target: "label:Add new",
-          done: () => shown('[aria-label="New Lib Key"]'),
+          // A case variant must be renamed from its own ⋯ menu.
+          target: () => {
+            const variant = stopIntakeVariant();
+            return variant
+              ? `label:Event trigger actions for ${variant}`
+              : "label:Add new";
+          },
+          done: () =>
+            !stopIntakeVariant() && shown('[aria-label="New Lib Key"]'),
         },
         "label:New Lib Key",
       ],
       check: () => {
         const keys = config().gui.event_trigger_keys ?? [];
         // A case variant blocks adding the right key, so point at the fix.
-        const variant = keys.find(
-          (key) =>
-            key !== "stopIntake" && key.toLocaleLowerCase() === "stopintake",
-        );
+        const variant = stopIntakeVariant();
         return !keys.includes("stopIntake") && variant
           ? {
               complete: false,

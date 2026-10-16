@@ -26,7 +26,13 @@ import {
   near,
   practiceConfig,
 } from "./tourScenario";
-import { checkPlan, feedback, withEventKeyCaseHint } from "./tourChecks";
+import {
+  checkPlan,
+  eventPosHint,
+  feedback,
+  withEventKeyCaseHint,
+  wrongStretchHint,
+} from "./tourChecks";
 import { settingsTours } from "./robotSettingsLesson";
 import { advancedTours, importExportTour } from "./supplementalLessons";
 import {
@@ -35,6 +41,7 @@ import {
   createManagementTargets,
 } from "./supplementalScenarios";
 import { observedTourCondition } from "./tourInteraction";
+import { constraintCell, radiusCell } from "./tourShowMe";
 import {
   createEventLessonPath,
   createFastRotationPath,
@@ -219,8 +226,11 @@ function seen(label: string, selector: string, hint: string) {
 const sidebarOpen = observedTourCondition(() =>
   shown('[data-tour="inspector-toggle"][aria-expanded="true"]'),
 );
-const elementsOpened = observedTourCondition(() =>
-  shown('[data-tour="inspector-elements"][aria-selected="true"]'),
+// The sidebar opens on Elements, which counts once the learner can see it.
+const elementsOpened = observedTourCondition(
+  () =>
+    shown('[data-tour="inspector-toggle"][aria-expanded="true"]') &&
+    shown('[data-tour="inspector-elements"][aria-selected="true"]'),
 );
 const constraintsAfterElements = observedTourCondition(
   () =>
@@ -263,7 +273,7 @@ const extraPoint = (() => {
 const extraPointAdded = () => extraPoint().added;
 const extraPointRemoved = () => extraPoint().removed;
 const played = {
-  label: "Played the path",
+  label: "Played it",
   showMe: ["transport-play"],
   check: action("play", "", ""),
 };
@@ -276,6 +286,7 @@ const openInspector = {
   target: "inspector-toggle",
   done: () => shown('[data-tour="inspector-toggle"][aria-expanded="true"]'),
 };
+const stopIntakePosHint = eventPosHint();
 const indexOrNull = (index: number) => (index >= 0 ? index : null);
 
 export const gettingStartedTour: TourDefinition = {
@@ -318,7 +329,7 @@ export const gettingStartedTour: TourDefinition = {
         "inspector-elements",
         "inspector-constraints",
       ],
-      prepare: { inspector: "closed", inspectorTab: "constraints" },
+      prepare: { inspector: "closed", inspectorTab: "elements" },
       checks: [
         {
           label: "Sidebar open",
@@ -340,7 +351,7 @@ export const gettingStartedTour: TourDefinition = {
     {
       title: "Menus",
       task: "Open File, then Edit",
-      body: "File holds projects, import, export, and Settings. Edit renames, copies, and deletes paths.",
+      body: "File holds projects, import, export, and Settings. Edit renames and deletes paths and groups.",
       target: "export-menu-entry",
       interact: ["export-menu-entry", "path-menu-entry"],
       prepare: { closeMenus: true, inspector: "closed" },
@@ -421,8 +432,9 @@ export const fundamentalsTour: TourDefinition = {
     },
     {
       title: "Place Start and End",
-      task: "Place a waypoint in Start and one in End",
-      why: "A waypoint sets where the robot is and which way it faces. Every path starts and ends with one. Placing returns you to Select, so choose Waypoint again for the second.",
+      task: "Place waypoints in Start and End",
+      body: "Placing switches back to Select, so pick Waypoint again for End.",
+      why: "A waypoint sets where the robot is and which way it faces. Every path starts and ends with one.",
       target: "tool-waypoint",
       visible: ["path-canvas"],
       interact: ["tool-waypoint", "path-canvas", "element-properties"],
@@ -471,7 +483,7 @@ export const fundamentalsTour: TourDefinition = {
     {
       title: "Turn a waypoint",
       task: "Change End’s rotation, then press Play",
-      body: "Rotation is the way the robot faces. Drag End’s rotation handle or type degrees.",
+      body: "Rotation is the way the robot faces. Type degrees, or drag the box’s front edge.",
       target: "element-properties",
       visible: ["path-canvas", "simulation-transport"],
       interact: elementExploration,
@@ -516,8 +528,8 @@ export const fundamentalsTour: TourDefinition = {
     {
       title: "Route around the obstacle",
       task: "Route the robot around the obstacle",
-      body: "Add a translation target and drag it until the bumpers clear.",
-      why: "A translation target sets where the robot goes, not which way it faces. Delete or ⌘Z removes any extra point.",
+      body: "Add a translation target and drag it until the robot’s box clears.",
+      why: "The box drawn around the robot is its bumpers. A translation target sets where the robot goes, not which way it faces. Delete or ⌘Z removes any extra point.",
       keys: ["Delete", "⌘Z"],
       target: "tool-translation",
       visible: ["path-canvas", "simulation-transport"],
@@ -537,7 +549,7 @@ export const fundamentalsTour: TourDefinition = {
           ),
         },
         {
-          label: "Bumpers clear the obstacle",
+          label: "Robot clears the obstacle",
           showMe: [{ target: "lesson-element", echo: "lesson-structure" }],
           check: outcome((path) =>
             feedback(
@@ -574,10 +586,31 @@ const tuningStep = (step: TourStep): TourStep => ({
   autoGenerate: false,
 });
 /** Show me's stop for a constraint cell, skipped once its editor is open. */
-const openCell = (target: string) => ({
-  target,
-  done: () => shown('[data-tour="constraint-popout"]'),
-});
+/** Manual speed limits, and whether any has a value of the learner’s own. */
+function manualSpeeds(path: PathModel) {
+  const manual = path.ranged_constraints.filter(
+    (constraint) =>
+      constraint.key === "max_velocity_meters_per_sec" &&
+      constraint.source !== "auto_velocity" &&
+      constraint.value > 0,
+  );
+  const before = baselinePath?.ranged_constraints ?? [];
+  const changed = manual.some(
+    (constraint) =>
+      !before.some(
+        (old) =>
+          old.key === constraint.key &&
+          old.start_ordinal <= constraint.start_ordinal &&
+          old.end_ordinal >= constraint.end_ordinal &&
+          Math.abs(old.value - constraint.value) < 1e-6,
+      ),
+  );
+  return { manual: manual.length > 0, changed };
+}
+const speedFourManual = () => {
+  const path = currentPath();
+  return !!path && manualSpeeds(path).manual;
+};
 export const pathTuningTour: TourDefinition = {
   id: "path-tuning",
   title: "Path Tuning",
@@ -593,7 +626,7 @@ export const pathTuningTour: TourDefinition = {
   steps: [
     {
       title: "Approach the translation",
-      body: "Watch the robot drive toward the translation target.",
+      body: "Watch the robot drive toward the bend, a translation target.",
       target: "path-canvas",
       canvasLesson: "handoff-approach",
       autoGenerate: false,
@@ -652,8 +685,8 @@ export const pathTuningTour: TourDefinition = {
     tuningStep({
       title: "Find a speed limit",
       task: "Click the speed limit for the drive into Intermediate",
-      body: "Speed limits are the m/s cells, one per stretch, top to bottom in drive order.",
-      why: "The first cell in each column covers the drive to Start, before this preview begins.",
+      body: "The m/s cells are speed limits: first the drive to Start, then one per stretch.",
+      why: "The drive to Start comes before this preview begins, so the canvas doesn’t draw it.",
       target: "max-velocity-card",
       visible: ["path-canvas"],
       interact: ["max-velocity-card"],
@@ -718,8 +751,18 @@ export const pathTuningTour: TourDefinition = {
       prepare: { ...constraints(), selectElement: bend },
       element: () => 2,
       showMe: [
-        { ...openCell("testid:handoff-radius-chip-2"), echo: "lesson-element" },
-        "text:Manual",
+        radiusCell(2, "lesson-element"),
+        {
+          target: "label:Handoff distance source",
+          done: () =>
+            currentPath()?.path_elements[2]?.type === "translation" &&
+            (
+              currentPath()?.path_elements[2] as {
+                handoff_radius_source?: string;
+              }
+            ).handoff_radius_source === "manual",
+        },
+        "label:Handoff distance 3 (m)",
       ],
       check: outcome((path) => {
         const manual = path.path_elements.map(
@@ -731,7 +774,7 @@ export const pathTuningTour: TourDefinition = {
         return feedback(
           manual[2],
           manual.some(Boolean)
-            ? "That’s another point’s radius. Intermediate’s is the third m cell."
+            ? "That’s another point’s radius. Set it back to Auto, then pick Intermediate’s: the third m cell."
             : "",
           "This radius keeps your value when you generate.",
         );
@@ -745,19 +788,19 @@ export const pathTuningTour: TourDefinition = {
       visible: ["path-canvas", "simulation-transport"],
       interact: constraintExploration,
       prepare: constraints(4),
-      showMe: [openCell("lesson-speed-4"), "text:Manual"],
-      check: outcome((path) =>
-        feedback(
-          path.ranged_constraints.some(
-            (constraint) =>
-              constraint.key === "max_velocity_meters_per_sec" &&
-              constraint.source !== "auto_velocity" &&
-              constraint.value > 0,
-          ),
-          "",
+      showMe: [
+        constraintCell("max_velocity_meters_per_sec", 4, "lesson-speed-4"),
+        { target: "label:Velocity constraint mode", done: speedFourManual },
+        "label:Constraint * value",
+      ],
+      check: outcome((path) => {
+        const { manual, changed } = manualSpeeds(path);
+        return feedback(
+          changed,
+          manual ? "It’s Manual. Now change its value." : "",
           "This limit keeps your value when you generate.",
-        ),
-      ),
+        );
+      }),
     }),
     tuningStep({
       title: "Explore radii and speed limits",
@@ -834,7 +877,7 @@ export const rotationTargetsTour: TourDefinition = {
     {
       title: "Try a rotation in motion",
       task: "Change its rotation, then press Play",
-      body: "Drag its rotation handle, or type degrees in Rotation (deg).",
+      body: "Type degrees in Rotation (deg), or drag the front edge of its robot.",
       target: "element-properties",
       visible: ["path-canvas", "simulation-transport"],
       interact: elementExploration,
@@ -901,7 +944,7 @@ export const rotationTargetsTour: TourDefinition = {
     },
     {
       title: "Give the turn enough time",
-      body: "The rotation warning flags turns that need more time. Lower the speed limit and play again; driving slower gives the robot time to turn.",
+      body: "The ⚠ badge at bottom right flags turns that need more time. Lower the speed limit to 1 m/s and play again.",
       target: "max-velocity-card",
       visible: ["path-canvas", "simulation-transport", "path-health"],
       interact: [
@@ -932,7 +975,7 @@ export const eventTriggersTour: TourDefinition = {
     {
       title: "Slide an event trigger",
       task: "Slide `startIntake` along the path",
-      body: "Event Pos says where it sits: 0 where the stretch starts, 1 where it ends.",
+      body: "Event Pos says where it sits between two points: 0 at the first, 1 at the next.",
       target: "element-properties",
       visible: ["path-canvas", "simulation-transport"],
       interact: elementExploration,
@@ -1004,7 +1047,7 @@ export const eventTriggersTour: TourDefinition = {
               secondSegmentEvents(path).length > 0,
               path.path_elements.filter(isEventTrigger).length >
                 (baselinePath?.path_elements.filter(isEventTrigger).length ?? 0)
-                ? "That one is before the translation target. Undo it (⌘Z or Ctrl+Z) and click past the target."
+                ? wrongStretchHint("the translation target and End")
                 : "",
               "",
             ),
@@ -1034,22 +1077,19 @@ export const eventTriggersTour: TourDefinition = {
         {
           label: "Event Pos 0.6",
           showMe: [openInspector, selectSecondSegmentEvent, "lesson-event-pos"],
-          check: outcome((path) => {
-            const ratio = secondSegmentEvents(path).at(-1)?.t_ratio;
-            return feedback(
+          check: outcome((path) =>
+            feedback(
               secondSegmentEvents(path).some(
                 (event) => Math.abs(event.t_ratio - 0.6) < 0.015,
               ),
-              ratio === undefined
-                ? ""
-                : ratio <= 0 || ratio >= 1
-                  ? "Event Pos runs from 0 to 1. Type 0.6."
-                  : Math.abs(ratio - 0.6) < 0.15
-                    ? `Close: it’s ${ratio.toFixed(2)}. Type exactly 0.6.`
-                    : "",
+              stopIntakePosHint(
+                secondSegmentEventIndex(path) ?? undefined,
+                secondSegmentEvents(path).at(-1)?.t_ratio,
+                0.6,
+              ),
               "",
-            );
-          }),
+            ),
+          ),
         },
       ],
     },

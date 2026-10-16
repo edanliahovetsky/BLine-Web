@@ -9,7 +9,7 @@ import {
 import type { LinkedTarget, ProjectPathGroup } from "../../core/model/project";
 import { projectStore } from "../../state/projectStore";
 import { selectionStore } from "../../state/selectionStore";
-import { feedback } from "./tourChecks";
+import { feedback, firstSeen } from "./tourChecks";
 import { createImportExportTour } from "./importExportLesson";
 import { offlineTour } from "./offlineLesson";
 import { practiceConfig } from "./tourScenario";
@@ -30,6 +30,7 @@ import {
 } from "./supplementalScenarios";
 import { tourStore, type TourDefinition, type TourStep } from "./tourStore";
 import { observedTourCondition } from "./tourInteraction";
+import { constraintCell, radiusCell } from "./tourShowMe";
 
 interface SupplementalTour extends TourDefinition {
   practiceGroups?(): ProjectPathGroup[];
@@ -220,13 +221,11 @@ const choosePath = (name: string) => [
   `text:${name}`,
 ];
 /** Show me's stop for a constraint cell, skipped once its editor is open. */
-const openCell = (target: string) => ({
-  target,
-  done: () => present('[data-tour="constraint-popout"]'),
-});
+
 const groupFocused = (name: string) =>
   present(`[aria-label="Focus ${name}"][aria-pressed="true"]`);
 const startingGroups = createManagementGroups().length;
+const openedAtStart = firstSeen<string | null>();
 
 const managementSteps: TourStep[] = [
   {
@@ -270,7 +269,8 @@ const managementSteps: TourStep[] = [
     check: () =>
       feedback(
         !!groupNamed("My Auto"),
-        (project()?.path_groups.length ?? 0) > startingGroups
+        (project()?.path_groups.length ?? 0) > startingGroups &&
+          !present('[aria-label="Path Group name"]')
           ? "Double-click the new group’s name to rename it My Auto."
           : "",
         "",
@@ -301,7 +301,14 @@ const managementSteps: TourStep[] = [
       check: () =>
         feedback(
           !!groupNamed("My Auto")?.path_ids.includes(id),
-          groupNamed("My Auto") ? "" : "Create My Auto first: go Back.",
+          !groupNamed("My Auto")
+            ? "Create My Auto first: go Back."
+            : // Clicking a path’s name opens it instead of connecting it.
+              projectStore.getState().activePathId !==
+                  openedAtStart("path", projectStore.getState().activePathId) &&
+                !groupFocused("My Auto")
+              ? "Click My Auto first, then the dots beside the paths."
+              : "",
           "",
         ),
     })),
@@ -418,7 +425,7 @@ const linkedElementSteps: TourStep[] = [
   },
   {
     title: "Link the next path's Start",
-    task: "Link Score to Pickup’s Start to Score",
+    task: "On Score to Pickup, link Start to Score",
     body: "Select its Start, then use Link → Choose Existing.",
     target: "path-breadcrumb",
     visible: ["element-properties", "path-canvas"],
@@ -436,7 +443,7 @@ const linkedElementSteps: TourStep[] = [
         check: () => feedback(activePathIs(ids.scorePickup), "", ""),
       },
       {
-        label: "Its Start linked to Score",
+        label: "Start linked to Score",
         showMe: [
           {
             target: "lesson-element",
@@ -513,7 +520,8 @@ const linkedElementSteps: TourStep[] = [
 ];
 
 // Start to Pickup has two points, so End is the second cell.
-const minimumCell = "testid:constraint-cell-min_velocity_meters_per_sec-2";
+// Start to Pickup runs Start, a translation target, then End: End is cell 3.
+const minimumCell = "testid:constraint-cell-min_velocity_meters_per_sec-3";
 const pathLinkingSteps: TourStep[] = [
   {
     title: "Preview both paths",
@@ -588,7 +596,7 @@ const pathLinkingSteps: TourStep[] = [
     title: "Choose the transition speed",
     task: "Set Min Velocity to 1.5 m/s at End",
     body: "It keeps the robot moving into the next path.",
-    why: "Min Velocity keeps the robot from slowing to a stop near End. The cells under a constraint are the path’s points in order: W1 is Start and W2 is End.",
+    why: "Min Velocity keeps the robot from slowing to a stop near End. The cells under a constraint are the path’s points in order: W1 is Start, T1 the translation target, and W2 End.",
     target: "inspector-panel",
     visible: ["path-canvas"],
     interact: constraints,
@@ -624,7 +632,10 @@ const pathLinkingSteps: TourStep[] = [
       },
       {
         label: "1.5 m/s",
-        showMe: [openCell(minimumCell), "constraint-popout"],
+        showMe: [
+          constraintCell("min_velocity_meters_per_sec", 3, minimumCell),
+          "label:Constraint * value",
+        ],
         check: () =>
           feedback(
             hasTransitionMinimum(pathById(ids.stagingPickup)?.path),
@@ -765,7 +776,7 @@ const definitions: SupplementalTour[] = [
     steps: [
       {
         title: "Two ways to reach a handoff",
-        body: "A handoff moves the robot on to its next point early. Radius hands off within a distance of the point; Progress, once that much line remains.",
+        body: "A handoff moves the robot on to its next point early. Radius hands off near the point; Progress hands off when that much of the line into it is left.",
         why: "Neither mode makes the robot stop. The final point has no handoff; it uses end tolerances instead.",
         visible: ["path-canvas", "inspector-panel"],
         prepare: {
@@ -778,23 +789,24 @@ const definitions: SupplementalTour[] = [
       {
         title: "Change one point",
         task: "Set the middle point’s handoff to Progress",
-        body: "Each point’s handoff is its m cell in Constraints, top to bottom in drive order.",
+        body: "In Constraints, click the middle m cell, then the arrow icon: Progress.",
         why: "Auto/Manual sets where the distance comes from; Radius/Progress sets how it is measured. Shift-click cells to change several at once.",
         target: "max-velocity-card",
         element: () => 1,
-        showMe: [
-          {
-            ...openCell("testid:handoff-radius-chip-1"),
-            echo: "lesson-element",
-          },
-          "label:Progress",
-        ],
+        showMe: [radiusCell(1, "lesson-element"), "label:Progress"],
         interact: ["path-canvas", "inspector-panel", "max-velocity-card"],
         visible: ["path-canvas", "inspector-panel"],
         check: () =>
           feedback(
             middleHandoffMode() === "progress",
-            "",
+            activePath()?.path.path_elements.some(
+              (element, index) =>
+                index !== 1 &&
+                element.type === "translation" &&
+                element.handoff_mode === "progress",
+            )
+              ? "That’s another point. The middle one is the second m cell."
+              : "",
             "The middle point now uses Progress. The purple dashed line is its gate: crossing it hands off, even off to one side.",
           ),
       },
@@ -833,13 +845,7 @@ const definitions: SupplementalTour[] = [
           },
           {
             label: "Middle point on Radius",
-            showMe: [
-              {
-                ...openCell("testid:handoff-radius-chip-1"),
-                echo: "lesson-element",
-              },
-              "label:Radius",
-            ],
+            showMe: [radiusCell(1, "lesson-element"), "label:Radius"],
             check: () => feedback(switchedToRadius(), "", ""),
           },
           {

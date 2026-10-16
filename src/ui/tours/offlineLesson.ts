@@ -14,7 +14,7 @@ export const offlineTour: TourDefinition = {
   steps: [
     {
       title: "The offline icon",
-      body: "This Wi-Fi-off icon beside Save appears when BLine runs from its offline copy. You can still edit, preview, and save in this browser.",
+      body: "This Wi-Fi-off icon beside the save status (✅) appears when BLine runs from its offline copy. You can still edit, preview, and save.",
       why: "BLine prepares the offline copy automatically while you’re online. Updates download quietly and apply after you save and finish editing.",
       target: "offline-indicator",
       visible: ["path-canvas"],

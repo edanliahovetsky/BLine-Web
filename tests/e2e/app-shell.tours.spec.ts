@@ -381,7 +381,8 @@ for (const [width, height] of [
       await page
         .getByRole("button", { name: "Toggle inspector", exact: true })
         .click();
-      await expect(checklist.locator("li[data-complete=true]")).toHaveCount(1);
+      // It opens on Elements, so the first two items are done.
+      await expect(checklist.locator("li[data-complete=true]")).toHaveCount(2);
       await page.getByRole("tab", { name: "Elements", exact: true }).click();
       await page.getByRole("tab", { name: "Constraints", exact: true }).click();
       await expect(checklist.locator("li[data-complete=true]")).toHaveCount(3);
@@ -523,11 +524,11 @@ for (const [width, height] of [
       await page.getByTestId("path-element-row-0").click();
       await place(page, "Translation", 10, 4.5);
       await expect(advanceButton(page)).toHaveCount(0);
-      await expect(page.getByTestId("tour-card")).toContainText("Bumpers");
+      await expect(page.getByTestId("tour-card")).toContainText("Robot clears");
       await setNumber(page, "X (m)", "10.8");
       await setNumber(page, "Y (m)", "6.8");
       await expect(page.getByTestId("tour-card")).toContainText(
-        "Bumpers clear the obstacle — done",
+        "Robot clears the obstacle — done",
         { timeout: 30_000 },
       );
       await advance(page);
@@ -1413,6 +1414,10 @@ test("Show me points at the next action and follows progress", async ({
   await clickField(page, 12, 4.25);
   await expect(spotlight).toHaveAttribute("data-show-me", "lesson-lib-key");
   const key = page.getByLabel("Lib Key", { exact: true });
+  // Pressing Show me again replays it without taking focus from the field.
+  await expect(key).toBeFocused();
+  await page.getByTestId("tour-show-me").click();
+  await expect(key).toBeFocused();
   await key.fill("stopIntake");
   await key.press("Tab");
   await expect(spotlight).toHaveAttribute("data-show-me", "lesson-event-pos");
@@ -1442,6 +1447,65 @@ test("Show me points at the next action and follows progress", async ({
   await selectSpeed(page, 3);
   await expect(advanceButton(page)).toBeVisible();
   await expect(spotlight).toHaveCount(0);
+});
+
+test("Show me keeps open menus and walks multi-part steps", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const jump = async (lesson: string, steps: number) => {
+    await page.goto(`/?lesson=${lesson}`);
+    await expect(page.getByTestId("tour-card")).toBeVisible();
+    await page.evaluate(async (steps) => {
+      const { tourStore }: typeof import("../../src/ui/tours/tourStore") =
+        await import(/* @vite-ignore */ "/src/ui/tours/tourStore.ts" as string);
+      for (let step = 0; step < steps; step += 1) tourStore.getState().next(99);
+    }, steps);
+  };
+  const spotlight = page.getByTestId("tour-spotlight");
+
+  // An open submenu stays open when the learner asks for help.
+  await jump("import-export", 1);
+  await heading(page, "Import the autos folder");
+  await page.getByRole("button", { name: "File", exact: true }).click();
+  await page
+    .getByRole("menuitem", { name: "Import / Export", exact: true })
+    .hover();
+  const importFolder = page.getByRole("menuitem", {
+    name: "Import Autos Folder...",
+  });
+  await expect(importFolder).toBeVisible();
+  await page.getByTestId("tour-show-me").click();
+  await expect(importFolder).toBeVisible();
+  await expect(spotlight).toHaveAttribute(
+    "data-show-me",
+    "text:Import Autos Folder...",
+  );
+
+  // Cell, then Manual, then the value.
+  await jump("path-tuning", 9);
+  await heading(page, "Make a speed limit Manual");
+  await page.getByTestId("tour-show-me").click();
+  await expect(spotlight).toHaveAttribute(
+    "data-show-me",
+    "label:Velocity constraint mode",
+  );
+  await page
+    .getByRole("group", { name: "Velocity constraint mode", exact: true })
+    .getByRole("button", { name: "Manual", exact: true })
+    .click();
+  await expect(spotlight).toHaveAttribute(
+    "data-show-me",
+    "label:Constraint * value",
+  );
+  await expect(page.getByTestId("tour-card")).toContainText(
+    "It’s Manual. Now change its value.",
+  );
+  await expect(advanceButton(page)).toHaveCount(0);
+  const value = page.getByLabel(/^Constraint \d+ value$/);
+  await value.fill("1.2");
+  await value.press("Enter");
+  await expect(advanceButton(page)).toBeVisible();
 });
 
 test("Space after a finished lesson plays the path, not the next lesson", async ({

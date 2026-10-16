@@ -106,6 +106,7 @@ export function TourOverlay({
   // Where the card last settled, so it moves only when the path needs room.
   const [placement, setPlacement] = useState<CardPlacement | null>(null);
   const preparedStepRef = useRef<string | null>(null);
+  const scrolledStop = useRef<string | null>(null);
   const capturedStepTokens = useRef(new Set<string>());
   const [rect, setRect] = useState<TourRect | null>(null);
   const [visibleHoles, setVisibleHoles] = useState<TourRect[]>([]);
@@ -167,6 +168,7 @@ export function TourOverlay({
   const feedback = feedbackResult?.message ?? "";
   const guided = !!step && followsProgress(step);
   const guiding = guided && guide?.token === stepToken;
+  const guideReplay = guide?.replay ?? 0;
   const activeStop =
     guiding && guideStop?.token === stepToken ? guideStop : null;
   const showMeTargets = guided
@@ -327,10 +329,22 @@ export function TourOverlay({
     const measure = () => {
       // Steps that follow progress keep their spotlight on the next action,
       // and drop it once the step is done. Show me adds the pointer.
+      // Reuse the latest assessment: measuring runs on every DOM change, far
+      // too often to run each step's checks again.
       const following = !!step && !isReviewing && followsProgress(step);
-      const assessment = following ? assessTourStep(step) : null;
+      const assessment = following ? feedbackResult : null;
       const stop = step && assessment ? nextShowMeStop(step, assessment) : null;
       const stopRect = stop ? measureTour(stop.target) : null;
+      // Bring a stop scrolled out of its panel into view, once per stop.
+      const stopKey =
+        stop && guiding ? `${stepToken}:${guideReplay}:${stop.target}` : null;
+      if (stopKey && scrolledStop.current !== stopKey) {
+        scrolledStop.current = stopKey;
+        findTourTarget(stop!.target)?.scrollIntoView?.({
+          block: "nearest",
+          inline: "nearest",
+        });
+      }
       const nextStop =
         guiding && stop && stopRect
           ? {
@@ -425,6 +439,8 @@ export function TourOverlay({
   }, [
     actionComplete,
     cardHeight,
+    feedbackResult,
+    guideReplay,
     guiding,
     interactToken,
     isReviewing,
@@ -496,6 +512,12 @@ export function TourOverlay({
       if (confirming && !target?.closest(confirmationSelector)) {
         event.preventDefault();
         event.stopImmediatePropagation();
+        return;
+      }
+      // Show me and Why? only help: pressing them must not close the menu or
+      // form the learner has open, which listen for pointerdown outside.
+      if (target?.closest("[data-tour-passive]")) {
+        if (event.type === "pointerdown") event.stopPropagation();
         return;
       }
       if (!target || target.closest(".tour-layer")) return;
@@ -976,6 +998,9 @@ export function TourOverlay({
                     type="button"
                     className="tour-card__show-me"
                     data-testid="tour-show-me"
+                    data-tour-passive
+                    // Keep focus, and with it Delete and ⌘Z, where it was.
+                    onMouseDown={(event) => event.preventDefault()}
                     aria-pressed={guided ? guiding : showMeIndex !== null}
                     onClick={() =>
                       guided

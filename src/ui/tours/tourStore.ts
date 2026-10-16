@@ -45,8 +45,11 @@ export interface TourSubCheck {
 }
 /** One place "Show me" can point at. */
 export interface TourPointer {
-  /** A `data-tour` id, or a lesson cue such as `lesson-segment`. */
-  target: string;
+  /**
+   * A `data-tour` id, or a lesson cue such as `lesson-segment`; computed when
+   * it depends on what the learner did, such as a misspelled key.
+   */
+  target: string | (() => string);
   /** A second place to outline, such as the stretch of path a cell covers. */
   echo?: string;
   /** True once this stop is no longer needed, such as a tool already chosen. */

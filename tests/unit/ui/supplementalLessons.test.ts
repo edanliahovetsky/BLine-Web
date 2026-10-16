@@ -313,6 +313,8 @@ describe("supplemental lessons", () => {
     expect(lessonCopy).toContain(
       "Run the next path right after the first in your robot code",
     );
-    expect(lessonCopy).toContain("W1 is Start and W2 is End");
+    expect(lessonCopy).toContain(
+      "W1 is Start, T1 the translation target, and W2 End",
+    );
   });
 });

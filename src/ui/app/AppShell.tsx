@@ -3154,7 +3154,12 @@ export function AppShell() {
           if (!startGuidedTour(tourId)) setShowTourPicker(true);
         }}
         onPrepare={(preparation) => {
-          if (preparation.closeMenus) setOpenTopMenu(null);
+          if (preparation.closeMenus) {
+            setOpenTopMenu(null);
+            // A finished export's result dialog would otherwise sit over the
+            // next step, behind the lesson's shield.
+            setShowRobotExport(false);
+          }
           if (preparation.navigator) {
             setInitiallyEditingPathId(null);
             setShowPathGroupsDialog(preparation.navigator === "open");

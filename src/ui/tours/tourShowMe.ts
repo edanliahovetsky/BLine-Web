@@ -1,3 +1,4 @@
+import { selectionStore } from "../../state/selectionStore";
 import type { TourFeedback, TourPointer, TourStep } from "./tourStore";
 
 /**
@@ -19,7 +20,7 @@ export function followsProgress(step: TourStep): boolean {
 export function nextShowMeStop(
   step: TourStep,
   assessment: TourFeedback,
-): TourPointer | null {
+): (TourPointer & { target: string }) | null {
   if (assessment.complete) return null;
   const unmet = assessment.items?.findIndex((item) => !item.complete) ?? -1;
   const route =
@@ -28,7 +29,14 @@ export function nextShowMeStop(
     [];
   for (const stop of route) {
     const pointer = typeof stop === "string" ? { target: stop } : stop;
-    if (!pointer.done?.()) return pointer;
+    if (!pointer.done?.())
+      return {
+        ...pointer,
+        target:
+          typeof pointer.target === "function"
+            ? pointer.target()
+            : pointer.target,
+      };
   }
   return null;
 }
@@ -86,10 +94,21 @@ export function findTourTarget(
   if (id === "lesson-event-pos")
     return findTourTarget("label:Event Pos (0-1)", root);
   if (id.startsWith("label:")) {
-    const name = CSS.escape(id.slice("label:".length));
+    // `*` stands for a number the editor puts in the name, as in
+    // `label:Constraint * value`.
+    const pattern = new RegExp(
+      `^${id
+        .slice("label:".length)
+        .replace(/[.*+?^${}()|[\]\\]/g, (match) =>
+          match === "*" ? "\\d+" : `\\${match}`,
+        )}$`,
+    );
     const control = Array.from(
-      root.querySelectorAll<HTMLElement>(`[aria-label="${name}"]`),
-    ).find(visible);
+      root.querySelectorAll<HTMLElement>("[aria-label]"),
+    ).find(
+      (element) =>
+        visible(element) && pattern.test(element.getAttribute("aria-label")!),
+    );
     if (control)
       return control.closest<HTMLElement>(".property-row") ?? control;
     // Settings rows name their control with visible text instead, and some
@@ -120,4 +139,34 @@ export function findTourTarget(
       `[data-testid="${CSS.escape(id.slice("testid:".length))}"]`,
     );
   return root.querySelector<HTMLElement>(`[data-tour="${id}"]`);
+}
+
+/** Show me's stop at a point's handoff radius cell, skipped once selected. */
+export function radiusCell(elementIndex: number, echo?: string): TourPointer {
+  const id = `handoff-radius-chip-${elementIndex}`;
+  return {
+    target: `testid:${id}`,
+    echo,
+    done: () =>
+      !!document.querySelector(`[data-testid="${id}"][aria-pressed="true"]`),
+  };
+}
+
+/** Show me's stop at a constraint's cell for `ordinal`, skipped once selected. */
+export function constraintCell(
+  key: string,
+  ordinal: number,
+  target: string,
+): TourPointer {
+  return {
+    target,
+    done: () => {
+      const selected = selectionStore.getState().selectedRangedConstraint;
+      return (
+        selected?.key === key &&
+        selected.startOrdinal <= ordinal &&
+        selected.endOrdinal >= ordinal
+      );
+    },
+  };
 }

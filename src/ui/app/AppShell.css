@@ -4918,6 +4918,7 @@ select {
 
 .tour-card__count {
   margin-left: auto;
+  white-space: nowrap;
   padding-right: 4px;
   font-variant-numeric: tabular-nums;
   font-weight: 560;

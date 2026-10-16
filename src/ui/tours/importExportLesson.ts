@@ -69,14 +69,13 @@ const webSteps: TourStep[] = [
     why: "An autos folder holds config.json, paths, and project.json. This lesson imports into its practice project, so your own work is untouched.",
     target: "export-menu-entry",
     interact: [...fileMenus, "lesson-import-folder", "lesson-import-zip"],
+    prepare: { closeMenus: true },
+    // The submenu's panel carries its id, and exists only while open.
     showMe: [
-      openFile('[data-tour="top-menu-project-transfer"][aria-expanded="true"]'),
+      openFile('[data-tour="top-menu-project-transfer"]'),
       {
-        target: "top-menu-project-transfer",
-        done: () =>
-          shown(
-            '[data-tour="top-menu-project-transfer"][aria-expanded="true"]',
-          ),
+        target: "text:Import / Export",
+        done: () => shown('[data-tour="top-menu-project-transfer"]'),
       },
       "text:Import Autos Folder...",
     ],
@@ -87,7 +86,7 @@ const webSteps: TourStep[] = [
             complete: false,
             message: `That didn’t import: ${failure.replace(/\.?$/, ".")} Pick the autos folder you exported, not a single path.`,
           }
-        : feedback(hasAction("importFolder"), "", "Autos folder imported.");
+        : feedback(hasAction("importFolder"), "", "Autos imported.");
     },
   },
   {
@@ -157,7 +156,7 @@ function desktopSteps(): TourStep[] {
         "export-menu-panel",
         "top-menu-project-folder",
       ],
-      showMe: [openFile(), "top-menu-project-folder"],
+      showMe: [openFile(), "text:Folder"],
       prepare: { navigator: "closed", inspector: "closed" },
       check: () => feedback(folderMenuOpened(), "", ""),
     },

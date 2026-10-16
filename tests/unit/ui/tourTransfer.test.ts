@@ -164,7 +164,7 @@ describe("lesson autos folder transfer", () => {
     ).toBe(true);
     expect(step.check!()).toEqual({
       complete: true,
-      message: "Autos folder imported.",
+      message: "Autos imported.",
     });
     expect(token.stepIndex).toBe(0);
   });
