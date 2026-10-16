@@ -28,7 +28,6 @@ import {
   type UserDataStorage,
 } from "../../../src/userData/adapters";
 import {
-  InvalidUserDataRecordError,
   USER_DATA_SCHEMA_VERSION,
   defaultUserData,
   migrateUserData,
@@ -69,32 +68,19 @@ describe("UserData", () => {
     ).toBe(false);
   });
 
-  it("defaults existing records to a hidden motion profile and retains an explicit choice", () => {
-    const previousLayout = {
-      inspector_tab: "elements",
-      inspector_width: 340,
-      show_ghost_paths: true,
-      navigator_show_connections: true,
-    };
-    const previousRecord = {
+  it("still loads a record saved with the removed motion profile preference", () => {
+    const record = {
       ...defaultUserData,
-      editor_layout: previousLayout,
+      editor_layout: {
+        inspector_tab: "elements",
+        inspector_width: 340,
+        show_ghost_paths: true,
+        navigator_show_connections: true,
+      },
     };
-    expect(
-      migrateUserData(previousRecord).editor_layout.show_motion_profile,
-    ).toBe(false);
-    expect(
-      migrateUserData({
-        ...previousRecord,
-        editor_layout: { ...previousLayout, show_motion_profile: true },
-      }).editor_layout.show_motion_profile,
-    ).toBe(true);
-    expect(() =>
-      migrateUserData({
-        ...previousRecord,
-        editor_layout: { ...previousLayout, show_motion_profile: "yes" },
-      }),
-    ).toThrow(InvalidUserDataRecordError);
+    expect(migrateUserData(record).editor_layout).toEqual(
+      defaultUserData.editor_layout,
+    );
   });
 
   it("migrates all legacy preferences into one record without deleting sources", async () => {
@@ -130,7 +116,6 @@ describe("UserData", () => {
         inspector_width: 418,
         show_ghost_paths: false,
         navigator_show_connections: true,
-        show_motion_profile: false,
       },
       completed_tour_ids: ["editor-basics"],
       automatic_generation: { keep_in_sync: false },
@@ -181,7 +166,6 @@ describe("UserData", () => {
         inspector_width: 340,
         show_ghost_paths: false,
         navigator_show_connections: true,
-        show_motion_profile: false,
       },
       completed_tour_ids: ["simulate-verify"],
       automatic_generation: { keep_in_sync: false },
@@ -759,7 +743,6 @@ describe("UserData", () => {
       inspector_width: 401,
       show_ghost_paths: false,
       navigator_show_connections: false,
-      show_motion_profile: true,
     });
     rememberCompletedTourIds(["editor-basics"]);
     rememberAutomaticGenerationKeepInSync(false);
@@ -771,7 +754,6 @@ describe("UserData", () => {
       inspector_width: 401,
       show_ghost_paths: false,
       navigator_show_connections: false,
-      show_motion_profile: true,
     });
     expect(readUserData().completed_tour_ids).toEqual(["editor-basics"]);
     expect(readUserData().automatic_generation.keep_in_sync).toBe(false);

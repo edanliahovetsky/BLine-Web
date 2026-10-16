@@ -33,11 +33,8 @@ and collapses into the canvas when closed. Its saved width is an editor-only
 preference. At compact widths it becomes an overlay drawer. Simulation
 transport uses the familiar J/K/L keys in addition to arrow/Home/End and Space
 controls.
-The optional motion profile (`canvas/MotionProfilePanel.tsx`) docks above the
-transport, is derived only from the preview trace, and remembers its
-visibility as an editor-only preference. Lessons hide it and the playback
-speed control because they own preview pacing. Shell commands drive canvas
-view and playback through `PathStageControls` instead of synthetic key events.
+Shell commands drive canvas view and playback through `PathStageControls`
+instead of synthetic key events.
 Ranged constraints are edited in the inspector. The current UI does not expose
 an Expand action or a separate constraint window.
 

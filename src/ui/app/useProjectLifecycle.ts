@@ -50,7 +50,6 @@ interface UseProjectLifecycleOptions {
     inspectorTab: "elements" | "constraints";
     inspectorWidth: number;
     showGhostPaths: boolean;
-    showMotionProfile: boolean;
   }): void;
 }
 
@@ -234,7 +233,6 @@ export function useProjectLifecycle({
           inspectorTab: userData.editor_layout.inspector_tab,
           inspectorWidth: userData.editor_layout.inspector_width,
           showGhostPaths: userData.editor_layout.show_ghost_paths,
-          showMotionProfile: userData.editor_layout.show_motion_profile,
         });
         autoVelocityStore
           .getState()

@@ -928,7 +928,7 @@ select {
   flex: 1;
   min-width: 0;
   display: grid;
-  grid-template-columns: auto auto minmax(64px, 1fr);
+  grid-template-columns: auto 4.25rem minmax(64px, 1fr);
   align-items: center;
   gap: 8px;
   min-height: 44px;
@@ -1102,12 +1102,11 @@ select {
 }
 
 .transport-elapsed {
-  display: flex;
+  display: grid;
   align-self: center;
-  align-items: center;
-  justify-content: center;
   height: 28px;
   padding: 0 10px;
+  place-items: center;
   border: 1px solid var(--bline-border-strong);
   border-radius: 6px;
   color: var(--bline-text-primary);
@@ -1128,227 +1127,6 @@ select {
   align-items: center;
   min-height: 28px;
   padding: 0 2px 0 4px;
-}
-
-.simulation-transport:is(.has-rate, .has-profile-toggle) {
-  grid-template-columns: auto auto minmax(80px, 1fr) auto;
-}
-
-.transport-elapsed__total {
-  margin-left: 0.3em;
-  color: var(--bline-text-muted);
-  font-weight: 560;
-  white-space: pre;
-}
-
-/* Event triggers sit on the track so their timing reads at a glance. */
-.transport-timeline__markers {
-  position: absolute;
-  z-index: 3;
-  inset: 0 11px 0 13px;
-  pointer-events: none;
-}
-
-.transport-timeline__event {
-  position: absolute;
-  top: 50%;
-  width: 3px;
-  height: 12px;
-  border-radius: 2px;
-  background: #a78bfa;
-  box-shadow: 0 0 0 1px rgba(8, 12, 16, 0.85);
-  transform: translate(-50%, -50%);
-}
-
-.transport-secondary-controls {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.simulation-transport .transport-rate-button {
-  min-width: 38px;
-  height: 28px;
-  min-height: 28px;
-  padding: 0 6px;
-  border-color: var(--bline-border-subtle);
-  color: var(--bline-text-secondary);
-  background: transparent;
-  font-size: 0.78rem;
-  font-variant-numeric: tabular-nums;
-  font-weight: 720;
-  cursor: pointer;
-}
-
-.simulation-transport .transport-rate-button:hover,
-.simulation-transport .transport-rate-button:focus-visible {
-  border-color: var(--bline-border-hover);
-  color: var(--bline-text-primary);
-  background: var(--bline-surface-hover);
-}
-
-.simulation-transport .transport-step-button.is-active {
-  border-color: var(--bline-border-accent);
-  color: var(--bline-text-primary);
-  background: var(--bline-surface-selected);
-}
-
-.simulation-transport-row:has(.motion-profile) {
-  right: max(56px, calc(50% - 440px));
-  left: max(70px, calc(50% - 440px));
-}
-
-.motion-profile {
-  grid-column: 1 / -1;
-  order: -1;
-  display: grid;
-  gap: 4px;
-  padding: 2px 2px 6px;
-  border-bottom: 1px solid var(--bline-border-subtle);
-  user-select: none;
-}
-
-.motion-profile__legend {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 18px;
-  color: var(--bline-text-secondary);
-  font-size: 0.72rem;
-  font-weight: 680;
-  white-space: nowrap;
-}
-
-.motion-profile__series {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.motion-profile__series i {
-  display: block;
-  width: 10px;
-  height: 3px;
-  border-radius: 2px;
-  background: var(--bline-accent);
-}
-
-.motion-profile__series--omega i {
-  background: #6bdc8b;
-}
-
-.motion-profile__series small {
-  color: var(--bline-text-muted);
-  font-size: inherit;
-  font-variant-numeric: tabular-nums;
-  font-weight: 560;
-}
-
-.motion-profile__readout {
-  display: inline-flex;
-  gap: 10px;
-  min-width: 0;
-  margin-left: auto;
-  overflow: hidden;
-  color: var(--bline-text-primary);
-  font-variant-numeric: tabular-nums;
-  text-overflow: ellipsis;
-}
-
-.motion-profile__readout strong {
-  color: #c4b5fd;
-  font-weight: 720;
-}
-
-.motion-profile__plot {
-  position: relative;
-  height: 80px;
-  overflow: hidden;
-  border-radius: 5px;
-  background: color-mix(in srgb, var(--bline-surface-inset) 70%, transparent);
-  cursor: col-resize;
-  touch-action: none;
-}
-
-.motion-profile__plot svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.motion-profile__plot :is(line, polyline, polygon) {
-  vector-effect: non-scaling-stroke;
-}
-
-.motion-profile__grid {
-  stroke: color-mix(in srgb, var(--bline-text-primary) 7%, transparent);
-  stroke-width: 1;
-}
-
-.motion-profile__handoff {
-  stroke: color-mix(in srgb, var(--bline-text-primary) 14%, transparent);
-  stroke-dasharray: 2 3;
-  stroke-width: 1;
-}
-
-.motion-profile__limit {
-  stroke: color-mix(in srgb, var(--bline-warning) 70%, transparent);
-  stroke-dasharray: 5 4;
-  stroke-width: 1;
-}
-
-.motion-profile__limit-label {
-  position: absolute;
-  right: 6px;
-  padding: 0 3px;
-  border-radius: 3px;
-  color: var(--bline-warning-text);
-  background: color-mix(in srgb, var(--bline-surface-inset) 80%, transparent);
-  font-size: 0.64rem;
-  font-variant-numeric: tabular-nums;
-  font-weight: 680;
-  line-height: 1.3;
-  transform: translateY(-50%);
-  pointer-events: none;
-}
-
-.motion-profile__speed-area {
-  fill: color-mix(in srgb, var(--bline-accent) 16%, transparent);
-  stroke: none;
-}
-
-.motion-profile__speed {
-  fill: none;
-  stroke: var(--bline-accent);
-  stroke-linejoin: round;
-  stroke-width: 2;
-}
-
-.motion-profile__omega {
-  fill: none;
-  stroke-linejoin: round;
-  stroke-opacity: 0.85;
-  stroke-width: 1.5;
-}
-
-.motion-profile__event {
-  stroke-width: 2;
-}
-
-.motion-profile__hover {
-  stroke: color-mix(in srgb, var(--bline-text-primary) 40%, transparent);
-  stroke-width: 1;
-}
-
-.motion-profile__playhead {
-  stroke: var(--bline-text-primary);
-  stroke-width: 1.5;
-}
-
-@container simulation-controls (max-width: 520px) {
-  .motion-profile__series small {
-    display: none;
-  }
 }
 
 .path-stage__pointer-readout {
@@ -5993,7 +5771,7 @@ button.path-health-popover__issue:focus-visible {
 }
 
 .simulation-transport {
-  grid-template-columns: auto auto minmax(80px, 1fr);
+  grid-template-columns: auto 4rem minmax(80px, 1fr);
   min-height: 38px;
   padding: 4px 8px;
   border-color: var(--bline-border-strong);
@@ -7198,25 +6976,11 @@ body.is-resizing-inspector * {
   .simulation-transport-row {
     right: 12px;
   }
-  /* Two columns: transport and elapsed time, then the timeline beside the
-     secondary controls, so nothing overflows a narrow canvas. */
-  .simulation-transport,
-  .simulation-transport:is(.has-rate, .has-profile-toggle) {
-    grid-template-columns: minmax(0, 1fr) auto;
+  .simulation-transport {
+    grid-template-columns: auto 4rem;
   }
-  .simulation-transport .transport-elapsed {
-    padding: 0 7px;
-  }
-  .simulation-transport .transport-timeline {
-    grid-column: 1;
-    order: 1;
-  }
-  .simulation-transport:not(.has-rate, .has-profile-toggle)
-    .transport-timeline {
+  .transport-timeline {
     grid-column: 1 / -1;
-  }
-  .simulation-transport .transport-secondary-controls {
-    order: 1;
   }
 }
 
@@ -7456,25 +7220,11 @@ body.is-resizing-inspector * {
   background: var(--bline-primary-active);
 }
 @container simulation-controls (max-width: 360px) {
-  /* Two columns: transport and elapsed time, then the timeline beside the
-     secondary controls, so nothing overflows a narrow canvas. */
-  .simulation-transport,
-  .simulation-transport:is(.has-rate, .has-profile-toggle) {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-  .simulation-transport .transport-elapsed {
-    padding: 0 7px;
+  .simulation-transport {
+    grid-template-columns: auto 4rem;
   }
   .simulation-transport .transport-timeline {
-    grid-column: 1;
-    order: 1;
-  }
-  .simulation-transport:not(.has-rate, .has-profile-toggle)
-    .transport-timeline {
     grid-column: 1 / -1;
-  }
-  .simulation-transport .transport-secondary-controls {
-    order: 1;
   }
 }
 

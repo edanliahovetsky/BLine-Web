@@ -387,9 +387,6 @@ export function AppShell() {
   const [showGhostPaths, setShowGhostPaths] = useState(
     () => readEditorUiPreferences().showGhostPaths,
   );
-  const [showMotionProfile, setShowMotionProfile] = useState(
-    () => readEditorUiPreferences().showMotionProfile,
-  );
   const pathStageControlsRef = useRef<PathStageControls | null>(null);
   const [linkedTargetPickerRequest, setLinkedTargetPickerRequest] =
     useState<LinkedTargetPickerRequest | null>(null);
@@ -462,12 +459,10 @@ export function AppShell() {
       inspectorTab,
       inspectorWidth,
       showGhostPaths,
-      showMotionProfile,
     }) => {
       setInspectorTab(inspectorTab);
       setInspectorWidth(inspectorWidth);
       setShowGhostPaths(showGhostPaths);
-      setShowMotionProfile(showMotionProfile);
     },
   });
 
@@ -2180,13 +2175,6 @@ export function AppShell() {
       showGhostPaths: show,
     });
   }, []);
-  const handleShowMotionProfileChange = useCallback((show: boolean) => {
-    setShowMotionProfile(show);
-    writeEditorUiPreferences({
-      ...readEditorUiPreferences(),
-      showMotionProfile: show,
-    });
-  }, []);
   const projectAvailable = Boolean(editorProject);
   const pathAvailable = Boolean(activePath);
   const projectIoAvailable = Boolean(projectIo);
@@ -2382,18 +2370,7 @@ export function AppShell() {
   ];
   const canvasControls = () => pathStageControlsRef.current;
   const canvasAvailable = pathAvailable && !showHome;
-  const motionProfileCommand: EditorCommand = {
-    id: "view.motion-profile",
-    label: showMotionProfile ? "Hide motion profile" : "Show motion profile",
-    category: "View",
-    keywords: ["graph", "chart", "velocity", "speed", "time", "plot"],
-    shortcut: { key: "p" },
-    scope: "editor",
-    disabled: !canvasAvailable || Boolean(activeTourId),
-    run: () => handleShowMotionProfileChange(!showMotionProfile),
-  };
   const viewCommands: EditorCommand[] = [
-    motionProfileCommand,
     {
       id: "view.path-group-overlays",
       label: showGhostPaths
@@ -2467,22 +2444,6 @@ export function AppShell() {
       disabled: !canvasAvailable,
       run: () => canvasControls()?.finish(),
     },
-    {
-      id: "playback.faster",
-      label: "Increase playback speed",
-      category: "Playback",
-      keywords: ["rate", "fast", "slow motion"],
-      disabled: !canvasAvailable || Boolean(activeTourId),
-      run: () => canvasControls()?.stepPlaybackRate(1),
-    },
-    {
-      id: "playback.slower",
-      label: "Decrease playback speed",
-      category: "Playback",
-      keywords: ["rate", "slow motion"],
-      disabled: !canvasAvailable || Boolean(activeTourId),
-      run: () => canvasControls()?.stepPlaybackRate(-1),
-    },
   ];
   const pathActionCommands: EditorCommand[] = [
     {
@@ -2542,7 +2503,6 @@ export function AppShell() {
     duplicateElementCommand,
     inspectorCommand,
     shortcutHelpCommand,
-    motionProfileCommand,
     ...toolCommands,
   ];
 
@@ -2861,8 +2821,6 @@ export function AppShell() {
                 activeTool={activeTool}
                 showGhostPaths={showGhostPaths}
                 onShowGhostPathsChange={handleShowGhostPathsChange}
-                showMotionProfile={showMotionProfile}
-                onShowMotionProfileChange={handleShowMotionProfileChange}
                 controlsRef={pathStageControlsRef}
                 previewConfig={settingsPreview?.config ?? null}
                 curveTool={curveToolSession}

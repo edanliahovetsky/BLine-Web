@@ -1525,11 +1525,6 @@ function mergeConcurrentUserData(
         local.editor_layout.navigator_show_connections,
         remote.editor_layout.navigator_show_connections,
       ),
-      show_motion_profile: mergeValue(
-        base.editor_layout.show_motion_profile,
-        local.editor_layout.show_motion_profile,
-        remote.editor_layout.show_motion_profile,
-      ),
     },
     // Tour completion is monotonic; concurrent tabs completing different tours
     // should retain both accomplishments.
