@@ -1468,6 +1468,32 @@ test("Space after a finished lesson plays the path, not the next lesson", async 
   await expect(recap).toHaveCount(0);
 });
 
+test("walks Current-pose Starts from dragging the ghost to Play", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await gotoSampleEditor(page);
+  await openLesson(page, "Current-pose Starts");
+  await heading(page, "Move the preview start");
+  await expect(advanceButton(page)).toHaveCount(0);
+  // Show me points at the ghost itself.
+  await page.getByTestId("tour-show-me").click();
+  await expect(page.getByTestId("tour-spotlight")).toHaveAttribute(
+    "data-show-me",
+    "lesson-start-pose",
+  );
+  await dragField(page, [3, 3], [4.5, 2]);
+  await expect(page.getByTestId("tour-card")).toContainText(
+    "The preview now starts there.",
+  );
+  await advance(page);
+  await heading(page, "Try the path");
+  await playAndInspect(page);
+  await advance(page);
+  await heading(page, "What reaches the robot");
+  await finish(page);
+});
+
 test("Escape in a lesson text field cancels the edit, not the lesson", async ({
   page,
 }) => {
