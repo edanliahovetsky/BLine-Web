@@ -33,12 +33,16 @@ import {
   WhyToggle,
 } from "./TourCard";
 import { trackEventKeyFields } from "./lessonKeyChips";
+import { followsProgress, nextShowMeStop } from "./tourShowMe";
+import { TourGhostPointer } from "./TourGhostPointer";
 
 const cardWidth = 304;
 const cardGap = 14;
 const viewportMargin = 12;
 const fallbackCardHeight = 200;
 const showMeInterval = 1300;
+/** A learner stuck this long on a step sees Show me play once by itself. */
+const idleShowMeDelay = 15_000;
 const confirmationSelector = '[data-tour="lesson-confirmation"]';
 
 export interface TourOverlayProps {
@@ -118,6 +122,17 @@ export function TourOverlay({
     token: string;
     index: number;
   } | null>(null);
+  // Show me for steps that follow progress: once started, it keeps pointing
+  // at the next action until the step is done. Replays restart the pointer.
+  const [guide, setGuide] = useState<{ token: string; replay: number } | null>(
+    null,
+  );
+  const [guideStop, setGuideStop] = useState<{
+    token: string;
+    target: string;
+    rect: TourRect;
+    echoRect: TourRect | null;
+  } | null>(null);
   const [collapsedTour, setCollapsedTour] = useState<string | null>(null);
   const [dragged, setDragged] = useState<{
     tourId: string;
@@ -150,9 +165,15 @@ export function TourOverlay({
   const feedbackResult =
     feedbackState.token === stepToken ? feedbackState.result : null;
   const feedback = feedbackResult?.message ?? "";
-  const showMeTargets =
-    step?.showMe ??
-    (stepTarget && stepTarget !== "path-canvas" ? [stepTarget] : []);
+  const guided = !!step && followsProgress(step);
+  const guiding = guided && guide?.token === stepToken;
+  const activeStop =
+    guiding && guideStop?.token === stepToken ? guideStop : null;
+  const showMeTargets = guided
+    ? []
+    : (step?.showMe?.flatMap((stop) =>
+        typeof stop === "string" ? [stop] : [],
+      ) ?? (stepTarget && stepTarget !== "path-canvas" ? [stepTarget] : []));
   const showMeIndex =
     showMeState?.token === stepToken ? showMeState.index : null;
   const showMeTarget =
@@ -195,6 +216,17 @@ export function TourOverlay({
     }, showMeInterval);
     return () => window.clearTimeout(timer);
   }, [showMeIndex, showMeTargets.length]);
+
+  // A learner who makes no progress for a while gets Show me without asking.
+  const progressKey = JSON.stringify(feedbackResult);
+  useEffect(() => {
+    if (!guided || guiding || isReviewing || actionComplete) return;
+    const timer = window.setTimeout(
+      () => setGuide({ token: stepToken, replay: 0 }),
+      idleShowMeDelay,
+    );
+    return () => window.clearTimeout(timer);
+  }, [actionComplete, guided, guiding, isReviewing, progressKey, stepToken]);
 
   // Put the editor into the state this step needs once per step, so the
   // baseline for action-driven steps is not reset on every render.
@@ -279,6 +311,7 @@ export function TourOverlay({
   // Track where the spotlight and interaction holes sit, following layout.
   useEffect(() => {
     const measureTour = (id: string): TourRect | null => {
+      // `lesson-speed-3` is the velocity cell for the drive to point 3.
       const speedOrdinal =
         id === "lesson-corner-speed"
           ? 3
@@ -286,7 +319,7 @@ export function TourOverlay({
             ? 2
             : id === "lesson-delivery-speed"
               ? 4
-              : null;
+              : Number(/^lesson-speed-(\d+)$/.exec(id)?.[1]) || null;
       const element = speedOrdinal
         ? (Array.from(
             document.querySelectorAll<HTMLElement>(
@@ -304,10 +337,12 @@ export function TourOverlay({
           ? document.querySelector<HTMLElement>(
               '[role="dialog"][aria-label="Path health"]',
             )
-          : id === "lesson-lib-key"
+          : id === "lesson-lib-key" || id === "lesson-event-pos"
             ? (document
                 .querySelector<HTMLElement>(
-                  '[data-testid="property-editor"] input[aria-label="Lib Key"]',
+                  `[data-testid="property-editor"] input[aria-label="${
+                    id === "lesson-lib-key" ? "Lib Key" : "Event Pos (0-1)"
+                  }"]`,
                 )
                 ?.closest<HTMLElement>(".property-row") ?? null)
             : document.querySelector<HTMLElement>(`[data-tour="${id}"]`);
@@ -328,18 +363,57 @@ export function TourOverlay({
         .filter((hole): hole is TourRect => hole !== null);
 
     const measure = () => {
+      const stop =
+        guiding && step && !isReviewing
+          ? nextShowMeStop(step, assessTourStep(step))
+          : null;
+      const stopRect = stop ? measureTour(stop.target) : null;
+      const nextStop =
+        stop && stopRect
+          ? {
+              token: stepToken,
+              target: stop.target,
+              rect: stopRect,
+              echoRect: stop.echo ? measureTour(stop.echo) : null,
+            }
+          : null;
+      setGuideStop((previous) =>
+        JSON.stringify(previous) === JSON.stringify(nextStop)
+          ? previous
+          : nextStop,
+      );
       // Concept steps have no target; drop any previous spotlight.
       setRect(
-        showMeTarget
-          ? measureTour(showMeTarget)
-          : stepTarget && stepTarget !== "path-canvas"
-            ? measureTour(stepTarget)
-            : null,
+        stopRect ??
+          (showMeTarget
+            ? measureTour(showMeTarget)
+            : stepTarget && stepTarget !== "path-canvas"
+              ? measureTour(stepTarget)
+              : null),
       );
       setVisibleHoles(measureTargets(visibleToken));
       setPlacement((previous) => {
         const next = quietCardPosition(
-          stepTarget,
+          [
+            stepTarget,
+            stop?.target,
+            stop?.echo,
+            // Keep the part of the path the step is about in view.
+            step?.segment ? "lesson-segment" : null,
+            step?.element ? "lesson-element" : null,
+          ].flatMap((id) => {
+            const box = id && id !== "path-canvas" ? measureTour(id) : null;
+            return box
+              ? [
+                  {
+                    left: box.left,
+                    top: box.top,
+                    right: box.left + box.width,
+                    bottom: box.top + box.height,
+                  },
+                ]
+              : [];
+          }),
           cardHeight,
           previous,
           stepToken,
@@ -386,7 +460,9 @@ export function TourOverlay({
   }, [
     actionComplete,
     cardHeight,
+    guiding,
     interactToken,
+    isReviewing,
     lockInteractionOnComplete,
     step,
     stepTarget,
@@ -735,9 +811,7 @@ export function TourOverlay({
   };
   const headline = step.task ?? step.title;
   const items = feedbackResult?.items;
-  const status = isReviewing
-    ? "Previously completed."
-    : feedback || (actionComplete ? "Done." : "Complete the task to continue.");
+  const status = isReviewing ? "Previously completed." : feedback || "Done.";
 
   // Everything outside the step's allowed controls is shielded from clicks;
   // the gaps between these regions are the only spots where pointer events
@@ -780,11 +854,23 @@ export function TourOverlay({
           }}
         />
       ))}
+      {activeStop?.echoRect && (
+        <div
+          className="tour-spotlight tour-spotlight--echo"
+          data-testid="tour-spotlight-echo"
+          style={{
+            top: activeStop.echoRect.top,
+            left: activeStop.echoRect.left,
+            width: activeStop.echoRect.width,
+            height: activeStop.echoRect.height,
+          }}
+        />
+      )}
       {rect && (
         <div
           className="tour-spotlight"
           data-testid="tour-spotlight"
-          data-show-me={showMeTarget ?? undefined}
+          data-show-me={activeStop?.target ?? showMeTarget ?? undefined}
           style={{
             top: rect.top,
             left: rect.left,
@@ -793,10 +879,20 @@ export function TourOverlay({
           }}
         >
           <span
-            key={`${stepToken}:${showMeIndex ?? "step"}`}
+            key={`${stepToken}:${activeStop?.target ?? showMeIndex ?? "step"}:${guiding ? (guide?.replay ?? 0) : ""}`}
             className="tour-spotlight__pulse"
           />
         </div>
+      )}
+      {activeStop && guiding && (
+        <TourGhostPointer
+          key={`${stepToken}:${guide?.replay ?? 0}`}
+          stop={activeStop.target}
+          to={{
+            x: activeStop.rect.left + activeStop.rect.width / 2,
+            y: activeStop.rect.top + activeStop.rect.height / 2,
+          }}
+        />
       )}
       {shieldRegions.map((region, index) => (
         <div
@@ -855,12 +951,11 @@ export function TourOverlay({
           ) : null
         ) : (
           <>
-            {step.task ? (
-              <p className="tour-card__step-title">{step.title}</p>
+            {step.body ? (
+              <p className="tour-card__body">
+                <LessonText text={step.body} />
+              </p>
             ) : null}
-            <p className="tour-card__body">
-              <LessonText text={step.body} />
-            </p>
             {step.keys?.length ? (
               <div className="tour-card__keys" aria-label="Keys">
                 {step.keys.map((key) => (
@@ -870,7 +965,7 @@ export function TourOverlay({
             ) : null}
             {items ? (
               <TourChecklist items={items} reviewing={isReviewing} />
-            ) : step.check ? (
+            ) : step.check && (canContinue || feedback) ? (
               <div
                 className={`tour-card__action-status ${
                   canContinue ? "is-complete" : ""
@@ -883,16 +978,21 @@ export function TourOverlay({
                 </span>
               </div>
             ) : null}
-            {step.why || showMeTargets.length > 0 ? (
+            {step.why || guided || showMeTargets.length > 0 ? (
               <div className="tour-card__aids">
-                {showMeTargets.length > 0 ? (
+                {(guided && !canContinue) || showMeTargets.length > 0 ? (
                   <button
                     type="button"
                     className="tour-card__show-me"
                     data-testid="tour-show-me"
-                    aria-pressed={showMeIndex !== null}
+                    aria-pressed={guided ? guiding : showMeIndex !== null}
                     onClick={() =>
-                      setShowMeState({ token: stepToken, index: 0 })
+                      guided
+                        ? setGuide({
+                            token: stepToken,
+                            replay: guiding ? (guide?.replay ?? 0) + 1 : 0,
+                          })
+                        : setShowMeState({ token: stepToken, index: 0 })
                     }
                   >
                     Show me
@@ -1083,7 +1183,8 @@ interface CardPlacement {
 }
 
 function quietCardPosition(
-  stepTarget: string | null,
+  /** What the learner must see or click: the step target and Show me's stop. */
+  targetBoxes: readonly Box[],
   cardHeight: number,
   previousPlacement: CardPlacement | null,
   token: string,
@@ -1098,19 +1199,12 @@ function quietCardPosition(
       .querySelector('[data-tour="linked-elements-dialog"]')
       ?.getBoundingClientRect(),
   );
-  const target =
-    stepTarget && stepTarget !== "path-canvas"
-      ? boxOf(
-          document
-            .querySelector(`[data-tour="${stepTarget}"]`)
-            ?.getBoundingClientRect(),
-        )
-      : null;
-  // The step's target is what the learner must click; controls come next,
+  const targets = targetBoxes.map((box) => ({ box, weight: 50 }));
+  // The step's targets are what the learner must click; controls come next,
   // and the empty area inside the path's box matters least.
   const obstacles = [
     { box: pathBox(canvasElement), weight: 1 },
-    { box: target, weight: 50 },
+    ...targets,
     { box: dialog, weight: 5 },
     {
       box: boxOf(

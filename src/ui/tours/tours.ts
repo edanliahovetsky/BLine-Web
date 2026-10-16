@@ -127,6 +127,24 @@ const secondSegmentEvents = (path: PathModel) => {
         .filter(isEventTrigger)
     : [];
 };
+/** The event the learner adds after the translation target. */
+const secondSegmentEventIndex = (path: PathModel | null) => {
+  const segment = path ? secondSegment(path) : null;
+  if (!path || !segment) return null;
+  for (let index = segment[1] - 1; index > segment[0]; index -= 1)
+    if (isEventTrigger(path.path_elements[index])) return index;
+  return null;
+};
+/** Show me's first stop when another element's properties are showing. */
+const selectSecondSegmentEvent = {
+  target: "lesson-element",
+  done: () => {
+    const index = secondSegmentEventIndex(currentPath());
+    return (
+      index !== null && selectionStore.getState().selectedElementIndex === index
+    );
+  },
+};
 const properties = (
   selectElement: TourStepPreparation["selectElement"],
 ): TourStepPreparation => ({
@@ -639,22 +657,30 @@ export const pathTuningTour: TourDefinition = {
       ),
     }),
     tuningStep({
-      title: "Select a constraint range",
-      task: "Click the velocity cell beside the middle translation target",
-      body: "A velocity limit covers one or more segments. Selecting its cell highlights that part of the path in green.",
+      title: "Find a speed limit",
+      task: "Click the speed limit for the drive into Intermediate",
+      body: "Speed limits are the m/s cells, one per stretch, top to bottom in drive order.",
       target: "max-velocity-card",
       visible: ["path-canvas"],
       interact: ["max-velocity-card"],
       prepare: { ...constraints(), clearSelection: true },
+      // The stretch from the top corner down to Intermediate.
+      segment: () => [1, 2],
+      showMe: [{ target: "lesson-speed-3", echo: "lesson-segment" }],
       check: () => {
-        const selected = selectionStore.getState().selectedRangedConstraint;
+        const selection = selectionStore.getState();
+        const selected = selection.selectedRangedConstraint;
+        const speed = selected?.key === "max_velocity_meters_per_sec";
         return feedback(
-          !!selected &&
-            selected.key === "max_velocity_meters_per_sec" &&
-            selected.startOrdinal <= 3 &&
-            selected.endOrdinal >= 3,
-          "Click the velocity cell beside the middle translation target.",
-          "The green highlight shows where this limit applies.",
+          speed && selected.startOrdinal <= 3 && selected.endOrdinal >= 3,
+          speed && selected.endOrdinal < 2
+            ? "The first one is the drive to Start, before this path begins. Pick the one that ends at Intermediate."
+            : speed
+              ? "That one covers the green stretch. Pick the one that ends at Intermediate."
+              : selection.selectedElementIndex !== null
+                ? "That’s a handoff radius (m). Speed limits are the m/s cells."
+                : "",
+          "The green stretch is where this limit applies.",
         );
       },
     }),
@@ -945,57 +971,75 @@ export const eventTriggersTour: TourDefinition = {
       ),
     },
     {
-      title: "Add an event on the next segment",
-      task: "Add `stopIntake` at 0.6 on segment 2",
-      body: "Choose the Event tool, then click the segment between the translation target and End. Set Event Pos and Lib Key below the list.",
-      why: "Event Pos runs from 0 at the segment’s start to 1 at its end, so 0.6 fires a little past halfway. Robot code matches the Lib Key exactly, including capitals.",
+      title: "Add an event on the next stretch",
+      task: "Add `stopIntake` between the translation target and End",
+      why: "Event Pos runs from 0 where the stretch starts to 1 where it ends, so 0.6 fires a little past halfway. Robot code matches the Lib Key exactly, capitals included.",
       target: "tool-event",
       visible: ["path-canvas", "element-properties"],
       interact: [...elementExploration, "tool-event"],
       prepare: { ...properties(bend), simulation: "start" },
-      showMe: ["tool-event", "lesson-segment", "lesson-lib-key"],
       segment: secondSegment,
+      element: (path) => secondSegmentEventIndex(path),
       checks: [
         {
-          label: "Placed on segment 2",
+          label: "Place an event there",
+          showMe: [
+            {
+              target: "tool-event",
+              done: () =>
+                shown('[data-tour="tool-event"][aria-pressed="true"]'),
+            },
+            "lesson-segment",
+          ],
           check: outcome((path) =>
             feedback(
               secondSegmentEvents(path).length > 0,
-              "Choose Event, then click between the translation target and End.",
+              path.path_elements.filter(isEventTrigger).length >
+                (baselinePath?.path_elements.filter(isEventTrigger).length ?? 0)
+                ? "That one is before the translation target. Undo it (⌘Z or Ctrl+Z) and click past the target."
+                : "",
               "",
             ),
           ),
         },
         {
-          label: "Event Pos 0.6",
-          check: outcome((path) => {
-            const events = secondSegmentEvents(path);
-            const ratio = events.at(-1)?.t_ratio;
-            return feedback(
-              events.some((event) => Math.abs(event.t_ratio - 0.6) < 0.015),
-              ratio === undefined
-                ? "Place the event first."
-                : `Type 0.6 in Event Pos (now ${ratio.toFixed(2)}).`,
-              "",
-            );
-          }),
-        },
-        {
           label: "Lib Key `stopIntake`",
+          showMe: [selectSecondSegmentEvent, "lesson-lib-key"],
           check: outcome((path) => {
-            const keys = secondSegmentEvents(path).map(
-              (event) => event.lib_key,
-            );
+            const keys = secondSegmentEvents(path)
+              .map((event) => event.lib_key.trim())
+              .filter(Boolean);
+            const wrong = keys.find((key) => key !== "stopIntake");
             return withEventKeyCaseHint(
               feedback(
-                keys.some((key) => key.trim() === "stopIntake"),
-                keys.length
-                  ? "Click `stopIntake` to fill the Lib Key field."
-                  : "Place the event first.",
+                keys.includes("stopIntake"),
+                wrong
+                  ? `This one says “${wrong}”. Click \`stopIntake\` to fix it.`
+                  : "",
                 "",
               ),
               keys,
               ["stopIntake"],
+            );
+          }),
+        },
+        {
+          label: "Event Pos 0.6",
+          showMe: [selectSecondSegmentEvent, "lesson-event-pos"],
+          check: outcome((path) => {
+            const ratio = secondSegmentEvents(path).at(-1)?.t_ratio;
+            return feedback(
+              secondSegmentEvents(path).some(
+                (event) => Math.abs(event.t_ratio - 0.6) < 0.015,
+              ),
+              ratio === undefined
+                ? ""
+                : ratio <= 0 || ratio >= 1
+                  ? "Event Pos runs from 0 to 1. Type 0.6."
+                  : Math.abs(ratio - 0.6) < 0.15
+                    ? `Close: it’s ${ratio.toFixed(2)}. Type exactly 0.6.`
+                    : "",
+              "",
             );
           }),
         },

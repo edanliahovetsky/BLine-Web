@@ -744,7 +744,7 @@ for (const [width, height] of [
       await heading(page, "Open Constraints");
       await page.getByRole("tab", { name: "Constraints", exact: true }).click();
       await advance(page);
-      await heading(page, "Select a constraint range");
+      await heading(page, "Find a speed limit");
       await expect(
         page.locator('[data-tour="max-velocity-card"]').getByRole("status"),
       ).toHaveText("Not generated");
@@ -939,7 +939,7 @@ test("slides an event and creates the requested key on a different segment @webk
     /^(\d+\.\d+) \/ \1 s$/,
   );
   await advance(page);
-  await heading(page, "Add an event on the next segment");
+  await heading(page, "Add an event on the next stretch");
   // The previous step ended at End; this exercise starts from the beginning,
   // and placing an element must not jump the play bar back to End.
   await expect(page.getByTestId("simulation-time")).toHaveText(/^0\.00 \//);
@@ -1381,10 +1381,61 @@ test("keeps the lesson card off the tool rail and most of the route", async ({
     state.next(4);
     state.next(4);
   });
-  await heading(page, "Add an event on the next segment");
+  await heading(page, "Add an event on the next stretch");
   await expect
     .poll(placement)
     .toEqual({ mostlyVisible: true, railClear: true });
+});
+
+test("Show me points at the next action and follows progress", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("/?lesson=event-triggers");
+  await heading(page, "Slide an event trigger");
+  await page.evaluate(async () => {
+    const { tourStore }: typeof import("../../src/ui/tours/tourStore") =
+      await import(/* @vite-ignore */ "/src/ui/tours/tourStore.ts" as string);
+    tourStore.getState().next(4);
+    tourStore.getState().next(4);
+  });
+  await heading(page, "Add an event on the next stretch");
+  const spotlight = page.getByTestId("tour-spotlight");
+  await page.getByTestId("tour-show-me").click();
+  await expect(spotlight).toHaveAttribute("data-show-me", "tool-event");
+  await expect(page.getByTestId("tour-ghost")).toHaveCount(1);
+  await page.getByRole("button", { name: "Event tool", exact: true }).click();
+  // Once the tool is chosen, Show me moves on to the stretch to click.
+  await expect(spotlight).toHaveAttribute("data-show-me", "lesson-segment");
+  await clickField(page, 12, 4.25);
+  await expect(spotlight).toHaveAttribute("data-show-me", "lesson-lib-key");
+  const key = page.getByLabel("Lib Key", { exact: true });
+  await key.fill("stopIntake");
+  await key.press("Tab");
+  await expect(spotlight).toHaveAttribute("data-show-me", "lesson-event-pos");
+  await setNumber(page, "Event Pos (0-1)", "0.6");
+  await expect(advanceButton(page)).toBeVisible();
+  await expect(page.getByTestId("tour-ghost")).toHaveCount(0);
+
+  // A speed limit is found by the stretch it covers, outlined on the canvas.
+  await page.goto("/?lesson=path-tuning");
+  await heading(page, "Approach the translation");
+  await page.evaluate(async () => {
+    const { tourStore }: typeof import("../../src/ui/tours/tourStore") =
+      await import(/* @vite-ignore */ "/src/ui/tours/tourStore.ts" as string);
+    for (let step = 0; step < 6; step += 1) tourStore.getState().next(13);
+  });
+  await heading(page, "Find a speed limit");
+  await expect(page.getByTestId("tour-show-me")).toBeVisible();
+  await page.getByTestId("tour-show-me").click();
+  await expect(spotlight).toHaveAttribute("data-show-me", "lesson-speed-3");
+  await expect(page.getByTestId("tour-spotlight-echo")).toBeVisible();
+  await selectSpeed(page, 1);
+  await expect(page.getByTestId("tour-card")).toContainText(
+    "The first one is the drive to Start",
+  );
+  await selectSpeed(page, 3);
+  await expect(advanceButton(page)).toBeVisible();
 });
 
 test("Escape in a lesson text field cancels the edit, not the lesson", async ({
@@ -1844,7 +1895,7 @@ test("keeps lessons available and active in a narrow window @webkit-canvas", asy
   await expect(page.getByTestId("start-guided-tour")).toBeEnabled();
   await page.getByTestId("start-guided-tour").click();
   await page.getByTestId("tour-picker-robot-settings").click();
-  await expect(page.getByTestId("tour-card")).toContainText("Robot size");
+  await heading(page, "Robot size");
 });
 
 async function openLesson(page: Page, title: string) {

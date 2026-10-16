@@ -35,8 +35,28 @@ export interface TourCheckResult {
 /** One named requirement of a step that asks for several things. */
 export interface TourSubCheck {
   label: string;
+  /**
+   * Leave the waiting message empty: the label already says what to do. Use
+   * the message for a near miss, such as the wrong cell or a case typo.
+   */
   check(): TourFeedback;
+  /** Where "Show me" points while this is the first unmet requirement. */
+  showMe?: TourShowMe;
 }
+/** One place "Show me" can point at. */
+export interface TourPointer {
+  /** A `data-tour` id, or a lesson cue such as `lesson-segment`. */
+  target: string;
+  /** A second place to outline, such as the stretch of path a cell covers. */
+  echo?: string;
+  /** True once this stop is no longer needed, such as a tool already chosen. */
+  done?(): boolean;
+}
+/**
+ * Stops in the order the learner reaches them. Show me points at the first
+ * stop that is not done, so it always shows the next action.
+ */
+export type TourShowMe = readonly (string | TourPointer)[];
 export type TourAction =
   | "play"
   | "finishRun"
@@ -76,10 +96,10 @@ export interface TourStep {
   target?: string;
   title: string;
   /**
-   * At most about 35 words. Wrap event keys in backticks to render them as
-   * insertable key chips.
+   * At most about 35 words, and none for a task the headline already says.
+   * Wrap event keys in backticks to render them as insertable key chips.
    */
-  body: string;
+  body?: string;
   /** Background detail kept behind the card's "Why?" toggle. */
   why?: string;
   /** Keep Settings open with edits applied to the isolated practice project. */
@@ -105,14 +125,18 @@ export interface TourStep {
    */
   task?: string;
   /**
-   * `data-tour` ids that "Show me" pulses in turn. `lesson-segment` is the
-   * canvas segment named by `segment`.
+   * Where "Show me" points. Steps with a checklist can give each requirement
+   * its own stops instead. A list of plain ids with no stop conditions is an
+   * older tour of the area that pulses each id in turn. `lesson-segment` and
+   * `lesson-element` are the canvas cues named by `segment` and `element`.
    */
-  showMe?: readonly string[];
+  showMe?: TourShowMe;
   /** Keys worth showing as key caps on the card. */
   keys?: readonly string[];
   /** Element indexes bounding the path segment `lesson-segment` outlines. */
   segment?(path: PathModel): readonly [number, number] | null;
+  /** The path element `lesson-element` outlines on the canvas. */
+  element?(path: PathModel): number | null;
   /**
    * `data-tour` ids the user may interact with during this step. Everything
    * else is shielded so a stray click cannot derail the lesson. Steps without

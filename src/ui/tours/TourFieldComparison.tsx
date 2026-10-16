@@ -38,6 +38,11 @@ export function TourFieldComparison({
         path={path}
         segment={step?.segment?.(path) ?? null}
       />
+      <ElementCue
+        viewport={viewport}
+        path={path}
+        index={step?.element?.(path) ?? null}
+      />
       {handoff && (
         <TourHandoffGuide
           viewport={viewport}
@@ -101,6 +106,37 @@ function SegmentCue({
         top,
         width: Math.abs(a.x - b.x) + segmentCuePadding * 2,
         height: Math.abs(a.y - b.y) + segmentCuePadding * 2,
+      }}
+    />
+  );
+}
+
+const elementCueRadius = 22;
+
+/** An invisible box over one path element, for the spotlight and Show me. */
+function ElementCue({
+  viewport,
+  path,
+  index,
+}: {
+  viewport: FieldViewport;
+  path: PathModel;
+  index: number | null;
+}) {
+  const position =
+    index === null ? null : getElementPosition(path.path_elements, index);
+  if (!position) return null;
+  const point = modelToStagePoint(position, viewport);
+  return (
+    <div
+      className="tour-segment-cue"
+      data-tour="lesson-element"
+      aria-hidden="true"
+      style={{
+        left: point.x - elementCueRadius,
+        top: point.y - elementCueRadius,
+        width: elementCueRadius * 2,
+        height: elementCueRadius * 2,
       }}
     />
   );

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { followsProgress } from "../../../src/ui/tours/tourShowMe";
 import {
   captureTourStepState,
   findTour,
@@ -112,11 +113,26 @@ describe("foundational lesson content", () => {
       expect(tour.recap.length, tour.id).toBeGreaterThanOrEqual(2);
       expect(tour.recap.length, tour.id).toBeLessThanOrEqual(3);
       for (const step of tour.steps) {
-        const words = plainLessonText(step.body).split(/\s+/).length;
+        const words = plainLessonText(step.body ?? "").split(/\s+/).length;
         expect(words, `${tour.id}: ${step.title}`).toBeLessThanOrEqual(35);
         if (step.check || step.checks)
           expect(step.task, `${tour.id}: ${step.title}`).toBeTruthy();
-        expect(step.body).not.toMatch(/Open File → Settings/);
+        expect(step.body ?? "").not.toMatch(/Open File → Settings/);
+        // Redesigned steps: the card reads in a glance, with no bare jargon.
+        if (followsProgress(step)) {
+          const visible = [
+            step.task ?? "",
+            step.body ?? "",
+            ...(step.checks ?? []).map((check) => check.label),
+          ].map(plainLessonText);
+          expect(
+            visible.join(" ").split(/\s+/).length,
+            `${tour.id}: ${step.title}`,
+          ).toBeLessThanOrEqual(25);
+          expect(visible.join(" "), `${tour.id}: ${step.title}`).not.toMatch(
+            /\b(heading|segment|cell beside)\b/i,
+          );
+        }
       }
     }
   });
@@ -316,7 +332,7 @@ describe("foundational lesson content", () => {
   it("requires the new event key and ratio on the second segment", () => {
     const path = createEventLessonPath();
     const step = findTour("event-triggers")!.steps.find(
-      (candidate) => candidate.title === "Add an event on the next segment",
+      (candidate) => candidate.title === "Add an event on the next stretch",
     )!;
     loadPractice(path);
     expect(assessTourStep(step).items?.map((item) => item.complete)).toEqual([
@@ -340,18 +356,22 @@ describe("foundational lesson content", () => {
     );
     // Project creation copies the path so write the changed exercise into the store.
     loadPractice(path);
+    // Unmet requirements stay quiet until something is close but wrong.
     expect(assessTourStep(step).items).toEqual([
-      { label: "Placed on segment 2", complete: true, hint: "" },
-      {
-        label: "Event Pos 0.6",
-        complete: false,
-        hint: "Type 0.6 in Event Pos (now 0.42).",
-      },
-      {
-        label: "Lib Key `stopIntake`",
-        complete: false,
-        hint: "Click `stopIntake` to fill the Lib Key field.",
-      },
+      { label: "Place an event there", complete: true, hint: "" },
+      { label: "Lib Key `stopIntake`", complete: false, hint: "" },
+      { label: "Event Pos 0.6", complete: false, hint: "" },
+    ]);
+    const placed = path.path_elements[3];
+    if (placed.type === "event_trigger") {
+      placed.t_ratio = 0.55;
+      placed.lib_key = "startIntake";
+    }
+    loadPractice(path);
+    expect(assessTourStep(step).items?.map((item) => item.hint)).toEqual([
+      "",
+      "This one says “startIntake”. Click `stopIntake` to fix it.",
+      "Close: it’s 0.55. Type exactly 0.6.",
     ]);
     const added = path.path_elements[3];
     if (added.type === "event_trigger") {
@@ -373,7 +393,7 @@ describe("foundational lesson content", () => {
   it("keeps lesson keys exact but explains a capitalization miss", () => {
     const path = createEventLessonPath();
     const step = findTour("event-triggers")!.steps.find(
-      (candidate) => candidate.title === "Add an event on the next segment",
+      (candidate) => candidate.title === "Add an event on the next stretch",
     )!;
     path.path_elements.splice(
       3,
