@@ -363,13 +363,14 @@ export function TourOverlay({
         .filter((hole): hole is TourRect => hole !== null);
 
     const measure = () => {
-      const stop =
-        guiding && step && !isReviewing
-          ? nextShowMeStop(step, assessTourStep(step))
-          : null;
+      // Steps that follow progress keep their spotlight on the next action,
+      // and drop it once the step is done. Show me adds the pointer.
+      const following = !!step && !isReviewing && followsProgress(step);
+      const assessment = following ? assessTourStep(step) : null;
+      const stop = step && assessment ? nextShowMeStop(step, assessment) : null;
       const stopRect = stop ? measureTour(stop.target) : null;
       const nextStop =
-        stop && stopRect
+        guiding && stop && stopRect
           ? {
               token: stepToken,
               target: stop.target,
@@ -384,12 +385,14 @@ export function TourOverlay({
       );
       // Concept steps have no target; drop any previous spotlight.
       setRect(
-        stopRect ??
-          (showMeTarget
-            ? measureTour(showMeTarget)
-            : stepTarget && stepTarget !== "path-canvas"
-              ? measureTour(stepTarget)
-              : null),
+        assessment?.complete
+          ? null
+          : (stopRect ??
+              (showMeTarget
+                ? measureTour(showMeTarget)
+                : stepTarget && stepTarget !== "path-canvas"
+                  ? measureTour(stepTarget)
+                  : null)),
       );
       setVisibleHoles(measureTargets(visibleToken));
       setPlacement((previous) => {
@@ -397,7 +400,7 @@ export function TourOverlay({
           [
             stepTarget,
             stop?.target,
-            stop?.echo,
+            guiding ? stop?.echo : null,
             // Keep the part of the path the step is about in view.
             step?.segment ? "lesson-segment" : null,
             step?.element ? "lesson-element" : null,

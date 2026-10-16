@@ -1415,7 +1415,9 @@ test("Show me points at the next action and follows progress", async ({
   await expect(spotlight).toHaveAttribute("data-show-me", "lesson-event-pos");
   await setNumber(page, "Event Pos (0-1)", "0.6");
   await expect(advanceButton(page)).toBeVisible();
+  // A finished step points at nothing, not at the tool it started with.
   await expect(page.getByTestId("tour-ghost")).toHaveCount(0);
+  await expect(spotlight).toHaveCount(0);
 
   // A speed limit is found by the stretch it covers, outlined on the canvas.
   await page.goto("/?lesson=path-tuning");
@@ -1436,6 +1438,7 @@ test("Show me points at the next action and follows progress", async ({
   );
   await selectSpeed(page, 3);
   await expect(advanceButton(page)).toBeVisible();
+  await expect(spotlight).toHaveCount(0);
 });
 
 test("Escape in a lesson text field cancels the edit, not the lesson", async ({
