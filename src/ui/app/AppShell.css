@@ -5186,6 +5186,42 @@ select {
   display: flex;
   gap: 12px;
 }
+/* Restart step and Restart lesson live behind the header's ⋯ button. */
+.tour-card__menu {
+  position: relative;
+}
+
+.tour-card__menu-panel {
+  position: absolute;
+  z-index: 2;
+  top: calc(100% + 4px);
+  right: 0;
+  display: grid;
+  min-width: 140px;
+  padding: 4px;
+  border: 1px solid var(--bline-border-strong);
+  border-radius: 8px;
+  background: var(--bline-surface-floating);
+  box-shadow: var(--bline-shadow-dialog);
+}
+
+.tour-card__menu-panel button {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--bline-text-primary);
+  font: inherit;
+  font-size: 0.8125rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tour-card__menu-panel button:hover,
+.tour-card__menu-panel button:focus-visible {
+  background: var(--bline-surface-hover);
+}
+
 .tour-card__recovery button {
   border: 0;
   background: transparent;

@@ -1034,8 +1034,11 @@ export function AppShell() {
       // Placement is one-shot so a later click selects instead of adding.
       setActiveTool("select");
       if (element.type === "event_trigger") {
-        // A lesson owns the inspector's visibility; elsewhere open it to name the event.
-        if (!tourStore.getState().activeTourId) {
+        // A lesson owns the inspector's visibility; open it to name the event
+        // outside lessons, or when the lesson step asks for its properties.
+        const lesson = tourStore.getState();
+        const step = findTour(lesson.activeTourId)?.steps[lesson.stepIndex];
+        if (!step || step.interact?.includes("element-properties")) {
           setInspectorOpen(true);
           setInspectorTab("elements");
         }

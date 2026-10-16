@@ -264,8 +264,19 @@ const extraPointAdded = () => extraPoint().added;
 const extraPointRemoved = () => extraPoint().removed;
 const played = {
   label: "Played the path",
-  check: action("play", "Press Play.", ""),
+  showMe: ["transport-play"],
+  check: action("play", "", ""),
 };
+/** Show me's stop for a canvas tool, skipped once that tool is chosen. */
+const chooseTool = (tool: string) => ({
+  target: `tool-${tool}`,
+  done: () => shown(`[data-tour="tool-${tool}"][aria-pressed="true"]`),
+});
+const openInspector = {
+  target: "inspector-toggle",
+  done: () => shown('[data-tour="inspector-toggle"][aria-expanded="true"]'),
+};
+const indexOrNull = (index: number) => (index >= 0 ? index : null);
 
 export const gettingStartedTour: TourDefinition = {
   id: editorBasicsTourId,
@@ -285,7 +296,7 @@ export const gettingStartedTour: TourDefinition = {
   steps: [
     {
       title: "The editor at a glance",
-      body: "The canvas shows your path. The tool bar on the left selects and adds elements, and the play bar below previews the robot’s motion.",
+      body: "The canvas shows your path. Build it with the tool bar on the left, and preview it with the play bar below.",
       target: "path-canvas",
       showMe: ["tool-rail", "simulation-transport"],
       prepare: {
@@ -298,16 +309,11 @@ export const gettingStartedTour: TourDefinition = {
     },
     {
       title: "Sidebar",
-      task: "Open the sidebar, then try both tabs",
-      body: "Elements lists the path in drive order; select a row to edit it. Constraints holds speed limits and handoff radii.",
+      task: "Open the sidebar, then click both tabs",
+      body: "Elements lists your path’s points in drive order. Constraints holds speed limits.",
       target: "inspector-toggle",
       visible: ["inspector-panel"],
       interact: [
-        "inspector-toggle",
-        "inspector-elements",
-        "inspector-constraints",
-      ],
-      showMe: [
         "inspector-toggle",
         "inspector-elements",
         "inspector-constraints",
@@ -316,72 +322,77 @@ export const gettingStartedTour: TourDefinition = {
       checks: [
         {
           label: "Sidebar open",
-          check: () =>
-            feedback(
-              sidebarOpen(),
-              "Click the sidebar button at top right.",
-              "",
-            ),
+          showMe: ["inspector-toggle"],
+          check: () => feedback(sidebarOpen(), "", ""),
         },
         {
           label: "Elements tab",
-          check: () => feedback(elementsOpened(), "Click Elements.", ""),
+          showMe: ["inspector-elements"],
+          check: () => feedback(elementsOpened(), "", ""),
         },
         {
           label: "Constraints tab",
-          check: () =>
-            feedback(constraintsAfterElements(), "Then click Constraints.", ""),
+          showMe: ["inspector-constraints"],
+          check: () => feedback(constraintsAfterElements(), "", ""),
         },
       ],
     },
     {
       title: "Menus",
       task: "Open File, then Edit",
-      body: "File creates paths and projects, imports and exports, and opens Settings. Edit renames, saves copies, and deletes. Undo and Redo sit at the top right.",
+      body: "File holds projects, import, export, and Settings. Edit renames, copies, and deletes paths.",
       target: "export-menu-entry",
       interact: ["export-menu-entry", "path-menu-entry"],
-      showMe: ["export-menu-entry", "path-menu-entry", "edit-controls"],
       prepare: { closeMenus: true, inspector: "closed" },
       checks: [
-        seen(
-          "File opened",
-          '[data-tour="export-menu-entry"][aria-expanded="true"]',
-          "Click File.",
-        ),
-        seen(
-          "Edit opened",
-          '[data-tour="path-menu-entry"][aria-expanded="true"]',
-          "Click Edit.",
-        ),
+        {
+          ...seen(
+            "File opened",
+            '[data-tour="export-menu-entry"][aria-expanded="true"]',
+            "",
+          ),
+          showMe: ["export-menu-entry"],
+        },
+        {
+          ...seen(
+            "Edit opened",
+            '[data-tour="path-menu-entry"][aria-expanded="true"]',
+            "",
+          ),
+          showMe: ["path-menu-entry"],
+        },
       ],
     },
     {
       title: "Path dropdown",
       task: "Open the path dropdown",
-      body: "A project holds many paths. Choose the one to edit from this dropdown.",
+      body: "A project holds many paths. Pick the one to edit here.",
       target: "path-breadcrumb",
       interact: ["path-breadcrumb"],
+      showMe: [{ target: "path-breadcrumb" }],
       prepare: { closeMenus: true },
       check: openControl(
         '[data-tour="path-breadcrumb"] [aria-expanded="true"]',
-        "Click the path name at the top.",
+        "",
       ),
     },
     {
       title: "Path Groups",
       task: "Open the Project Navigator",
-      body: "The Navigator lists every path and the Path Groups that organize them, such as Top Side Auto. Close it to bring the sidebar back.",
+      body: "It lists every path and the Path Groups that organize them.",
       target: "navigator-button",
       visible: ["project-navigator", "navigator-groups"],
       interact: ["navigator-button"],
+      showMe: [{ target: "navigator-button" }],
       prepare: { closeMenus: true, navigator: "closed" },
-      check: openControl(
-        '[data-tour="project-navigator"]',
-        "Click the Navigator button at top left.",
-      ),
+      check: openControl('[data-tour="project-navigator"]', ""),
     },
   ],
 };
+
+/** The waypoint the learner placed in a zone, if any. */
+const waypointIn = (path: PathModel, zone: typeof mission.start) =>
+  anchorPositions(path).findIndex((point) => near(point, zone));
 
 export const fundamentalsTour: TourDefinition = {
   id: "bline-fundamentals",
@@ -389,7 +400,7 @@ export const fundamentalsTour: TourDefinition = {
   summary: "Build a path with waypoints and translation targets",
   durationMinutes: 5,
   recap: [
-    "Waypoints set position and heading; translation targets set position only.",
+    "Waypoints set position and rotation; translation targets set position only.",
     "The robot follows the Elements order, and the preview shows whether its bumpers clear obstacles.",
   ],
   practicePath: createFundamentalsDemoPath,
@@ -398,24 +409,23 @@ export const fundamentalsTour: TourDefinition = {
   steps: [
     {
       title: "See a complete path",
-      task: "Press Play to watch the example",
-      body: "This path uses every element type: waypoints, translation targets, a rotation target, and an event. Pause or drag the play bar to look closer.",
+      task: "Press Play to watch a finished path",
+      body: "Drag the play bar to look closer.",
       target: "transport-play",
       visible: ["path-canvas"],
       interact: playback,
+      showMe: [{ target: "transport-play" }],
       prepare: { inspector: "closed", simulation: "start", tool: "select" },
       phase: "Observe",
-      check: action("play", "Press Play.", "Explore playback, then Continue."),
+      check: action("play", "", ""),
     },
     {
       title: "Place Start and End",
-      task: "Place a waypoint in each marked zone",
-      body: "Choose Waypoint and click inside Start. Choose Waypoint again and click inside End. Drag a waypoint to adjust it.",
-      why: "A waypoint sets both position and heading, the direction the robot faces. Every path needs a point to start from and one to finish at.",
+      task: "Place a waypoint in Start and one in End",
+      why: "A waypoint sets where the robot is and which way it faces. Every path starts and ends with one. Placing returns you to Select, so choose Waypoint again for the second.",
       target: "tool-waypoint",
       visible: ["path-canvas"],
       interact: ["tool-waypoint", "path-canvas", "element-properties"],
-      showMe: ["tool-waypoint", "lesson-start-zone", "lesson-goal-zone"],
       prepare: {
         practicePath: createPathModel,
         inspector: "closed",
@@ -426,30 +436,32 @@ export const fundamentalsTour: TourDefinition = {
       checks: [
         {
           label: "Waypoint in Start",
+          showMe: [chooseTool("waypoint"), "lesson-start-zone"],
           check: outcome((path) =>
             feedback(
               path.path_elements.length > 0 &&
                 isWaypoint(path.path_elements[0]) &&
                 near(anchorPositions(path)[0], mission.start),
-              path.path_elements.length
+              path.path_elements.length && waypointIn(path, mission.start) < 0
                 ? "Drag the first waypoint into the Start zone."
-                : "Choose Waypoint, then click inside Start.",
+                : "",
               "",
             ),
           ),
         },
         {
           label: "Waypoint in End",
+          showMe: [chooseTool("waypoint"), "lesson-goal-zone"],
           check: outcome((path) => {
             const count = path.path_elements.filter(isWaypoint).length;
             return feedback(
               count === 2 &&
                 near(anchorPositions(path).at(-1), mission.delivery),
               count > 2
-                ? "Keep just two waypoints: press ⌘Z or Ctrl+Z to remove the extra one."
+                ? "That’s an extra waypoint. Press ⌘Z or Ctrl+Z to undo it."
                 : count === 2
                   ? "Drag the second waypoint into the End zone."
-                  : "Choose Waypoint again, then click inside End.",
+                  : "",
               "",
             );
           }),
@@ -457,23 +469,19 @@ export const fundamentalsTour: TourDefinition = {
       ],
     },
     {
-      title: "Change a waypoint heading",
-      task: "Change a heading, then press Play",
-      body: "Drag a waypoint’s heading handle, or type an angle in degrees below the element list. Then play the path to watch the robot turn.",
+      title: "Turn a waypoint",
+      task: "Change End’s rotation, then press Play",
+      body: "Rotation is the way the robot faces. Drag End’s rotation handle or type degrees.",
       target: "element-properties",
       visible: ["path-canvas", "simulation-transport"],
       interact: elementExploration,
       prepare: properties(endpoint),
+      element: endpoint,
       checks: [
         {
-          label: "Heading changed",
-          check: outcome((path) =>
-            feedback(
-              headingChanged(path),
-              "Drag a heading handle or type a new angle.",
-              "",
-            ),
-          ),
+          label: "Rotation changed",
+          showMe: [{ target: "label:Rotation (deg)", echo: "lesson-element" }],
+          check: outcome((path) => feedback(headingChanged(path), "", "")),
         },
         played,
       ],
@@ -481,67 +489,63 @@ export const fundamentalsTour: TourDefinition = {
     {
       title: "Fix a mistake",
       task: "Add an extra point, then remove it",
-      body: "Choose Translation and click the path to add a point. Then remove it: select it and press Delete, click its row’s remove button, or press ⌘Z.",
+      body: "Select it and press Delete, or press ⌘Z.",
       why: "Placing returns you to Select, so a stray click won’t add more points. Undo (⌘Z or Ctrl+Z) reverses any edit, including a deletion.",
       target: "tool-translation",
       visible: ["path-canvas", "simulation-transport"],
       interact: [...elementExploration, "tool-translation"],
-      showMe: ["tool-translation", "inspector-panel"],
-      keys: ["Delete", "Backspace", "⌘Z", "Ctrl+Z"],
+      keys: ["Delete", "⌘Z", "Ctrl+Z"],
       prepare: { ...properties(0), simulation: "start" },
+      segment: (path) => [0, lastAnchor(path)],
+      element: (path) =>
+        indexOrNull(path.path_elements.findIndex(isTranslationTarget)),
       phase: "Build",
       checks: [
         {
           label: "Extra point added",
-          check: () =>
-            feedback(
-              extraPointAdded(),
-              "Choose Translation, then click the line between Start and End.",
-              "",
-            ),
+          showMe: [chooseTool("translation"), "lesson-segment"],
+          check: () => feedback(extraPointAdded(), "", ""),
         },
         {
           label: "Extra point removed",
-          check: () =>
-            feedback(
-              extraPointRemoved(),
-              "Select it and press Delete, use its row’s remove button, or press ⌘Z.",
-              "",
-            ),
+          showMe: ["lesson-element"],
+          check: () => feedback(extraPointRemoved(), "", ""),
         },
       ],
     },
     {
       title: "Route around the obstacle",
-      task: "Add a translation target that clears the obstacle",
-      body: "Add a translation target between Start and End, then drag it until the preview clears the obstacle. Delete or ⌘Z removes any extra point.",
-      why: "A translation target sets where the robot goes without fixing its heading. Select is the tool for moving and deleting points.",
+      task: "Route the robot around the obstacle",
+      body: "Add a translation target and drag it until the bumpers clear.",
+      why: "A translation target sets where the robot goes, not which way it faces. Delete or ⌘Z removes any extra point.",
       keys: ["Delete", "⌘Z"],
       target: "tool-translation",
       visible: ["path-canvas", "simulation-transport"],
       interact: [...elementExploration, "tool-translation"],
-      showMe: ["tool-translation", "lesson-structure"],
       markers: fundamentalsMarkers,
       prepare: { ...properties(0), simulation: "start" },
+      segment: (path) => [0, lastAnchor(path)],
+      element: (path) =>
+        indexOrNull(path.path_elements.findIndex(isTranslationTarget)),
       phase: "Build",
       checks: [
         {
           label: "Translation target added",
+          showMe: [chooseTool("translation"), "lesson-segment"],
           check: outcome((path) =>
-            feedback(
-              path.path_elements.some(isTranslationTarget),
-              "Choose Translation, then click the line between Start and End.",
-              "",
-            ),
+            feedback(path.path_elements.some(isTranslationTarget), "", ""),
           ),
         },
         {
           label: "Bumpers clear the obstacle",
+          showMe: [{ target: "lesson-element", echo: "lesson-structure" }],
           check: outcome((path) =>
             feedback(
               path.path_elements.some(isTranslationTarget) &&
                 clearance(path, currentConfig(), true),
-              "Drag the translation target farther from the obstacle.",
+              path.path_elements.some(isTranslationTarget)
+                ? "Drag the translation target farther from the obstacle."
+                : "",
               "",
             ),
           ),
@@ -550,24 +554,15 @@ export const fundamentalsTour: TourDefinition = {
     },
     {
       title: "Try more route points",
-      body: "Add two or three more points around the obstacle and press Play. Use Select to move points; Delete or ⌘Z removes extras.",
-      why: "Use waypoints only where the heading matters. Simpler paths are easier to tune.",
+      body: "The robot visits points in the order Elements lists them. Add points, drag rows to reorder, and press Play.",
+      why: "Use waypoints only where rotation matters. Simpler paths are easier to tune.",
       keys: ["Delete", "⌘Z"],
-      target: "path-canvas",
-      visible: ["tool-rail", "simulation-transport"],
-      interact: routeExploration,
-      markers: fundamentalsMarkers,
-      prepare: { ...properties(bend), simulation: "start" },
-      phase: "Experiment",
-    },
-    {
-      title: "Read the drive order",
-      body: "The robot visits elements in the order Elements lists them. Drag a row to reorder it, then press Play to see the change.",
       target: "inspector-panel",
       visible: ["path-canvas", "simulation-transport"],
       interact: routeExploration,
       markers: fundamentalsMarkers,
-      prepare: properties(bend),
+      prepare: { ...properties(bend), simulation: "start" },
+      phase: "Experiment",
     },
   ],
 };
@@ -578,13 +573,18 @@ const tuningStep = (step: TourStep): TourStep => ({
   lockGeometry: true,
   autoGenerate: false,
 });
+/** Show me's stop for a constraint cell, skipped once its editor is open. */
+const openCell = (target: string) => ({
+  target,
+  done: () => shown('[data-tour="constraint-popout"]'),
+});
 export const pathTuningTour: TourDefinition = {
   id: "path-tuning",
   title: "Path Tuning",
-  summary: "See target handoffs, then tune radii and velocity limits",
+  summary: "See target handoffs, then tune radii and speed limits",
   durationMinutes: 6,
   recap: [
-    "The handoff radius sets when the robot switches to its next target.",
+    "The handoff radius sets when the robot moves on to its next point.",
     "Generate gives starting radii and speed limits; Manual values stay when you generate again.",
   ],
   practicePath: createHandoffLessonPath,
@@ -601,7 +601,8 @@ export const pathTuningTour: TourDefinition = {
     },
     {
       title: "Cross the handoff radius",
-      body: "When the robot’s center enters the handoff radius, BLine switches to the next target. The purple flash marks that moment.",
+      body: "The circle around the point is its handoff radius. When the robot’s center enters it, the robot moves on to the next point.",
+      why: "The purple flash marks the moment of handoff. The robot never stops at the point itself.",
       target: "path-canvas",
       canvasLesson: "handoff-crossing",
       autoGenerate: false,
@@ -609,7 +610,7 @@ export const pathTuningTour: TourDefinition = {
     },
     {
       title: "Target the next element",
-      body: "The robot now heads for End. A larger radius switches sooner, so the turn starts earlier.",
+      body: "Now it heads for End. A bigger radius hands off sooner, so the turn starts earlier.",
       target: "path-canvas",
       canvasLesson: "handoff-departure",
       autoGenerate: false,
@@ -617,7 +618,7 @@ export const pathTuningTour: TourDefinition = {
     },
     {
       title: "Lower acceleration makes a wider turn",
-      body: "Here acceleration drops from 3 to 0.6 m/s². The robot can’t change direction as quickly, so it swings wider.",
+      body: "Here acceleration drops from 3 to 0.6 m/s². The robot can’t change direction as fast, so it swings wider.",
       why: "At the same speed, higher acceleration lets the robot turn more tightly.",
       target: "path-canvas",
       canvasLesson: "low-acceleration",
@@ -630,36 +631,29 @@ export const pathTuningTour: TourDefinition = {
       },
     },
     tuningStep({
-      title: "A new route to tune",
-      body: "This route goes around the obstacle. Its points are locked so you can focus on handoff radii and speed limits. Generate hasn’t run yet.",
-      target: "path-canvas",
-      prepare: {
-        practicePath: createTuningRectanglePath,
-        inspector: "closed",
-        simulation: "start",
-        clearSelection: true,
-      },
-    }),
-    tuningStep({
       title: "Open Constraints",
       task: "Open Constraints",
-      body: "Constraints set how fast the robot moves and accelerates along each part of the path.",
+      body: "This new route’s points are locked, so you can focus on speed limits and handoff radii.",
       target: "inspector-constraints",
       interact: ["inspector-constraints"],
+      showMe: [{ target: "inspector-constraints" }],
       prepare: {
+        practicePath: createTuningRectanglePath,
         inspector: "open",
         inspectorTab: "elements",
+        simulation: "start",
         clearSelection: true,
       },
       check: openControl(
         '[data-tour="inspector-constraints"][aria-selected="true"]',
-        "Click Constraints.",
+        "",
       ),
     }),
     tuningStep({
       title: "Find a speed limit",
       task: "Click the speed limit for the drive into Intermediate",
       body: "Speed limits are the m/s cells, one per stretch, top to bottom in drive order.",
+      why: "The first cell in each column covers the drive to Start, before this preview begins.",
       target: "max-velocity-card",
       visible: ["path-canvas"],
       interact: ["max-velocity-card"],
@@ -685,72 +679,73 @@ export const pathTuningTour: TourDefinition = {
       },
     }),
     tuningStep({
-      title: "The first slot",
-      body: "The first velocity and radius cells cover the approach to Start. This preview begins at Start, so it skips that part.",
-      target: "max-velocity-card",
-      visible: ["path-canvas"],
-      prepare: constraints(1),
-    }),
-    tuningStep({
       title: "Generate starting values",
       task: "Click Generate",
-      body: "Generate suggests handoff radii and speed limits from your robot’s settings. Treat them as starting values to test on the robot.",
+      body: "Generate fills in speed limits and handoff radii from your robot’s settings.",
+      why: "Treat them as starting values to test on the robot.",
       target: "max-velocity-card",
       interact: ["max-velocity-card"],
+      showMe: [{ target: "text:Generate" }],
       prepare: constraints(),
       check: outcome((path) =>
         feedback(
           generationCount() > baselineGeneration &&
             checkPlan(path, currentConfig()).complete,
-          "Click Generate.",
-          "Generated radii and speed limits are ready.",
+          "",
+          "Starting values are ready.",
         ),
       ),
     }),
     tuningStep({
       title: "Play the generated path",
       task: "Play the generated path",
-      body: "Watch how the robot rounds each turn. Pause or scrub to look closer.",
+      body: "Watch how the robot rounds each corner.",
       target: "transport-play",
       visible: ["path-canvas"],
       interact: playback,
+      showMe: [{ target: "transport-play" }],
       prepare: { simulation: "start" },
-      check: action(
-        "play",
-        "Press Play.",
-        "Continue when you’re ready to tune.",
-      ),
+      check: action("play", "", ""),
     }),
     tuningStep({
       title: "Make a radius Manual",
-      task: "Set a translation radius to Manual",
-      body: "Select a translation target’s radius chip, choose Manual, and change the value to hand off earlier or later.",
-      why: "Generate replaces Auto values but keeps Manual ones, so your tuning survives the next Generate.",
+      task: "Make Intermediate’s handoff radius Manual",
+      body: "Generate replaces Auto values but keeps Manual ones, so your tuning survives.",
+      why: "A bigger radius hands off sooner and cuts the corner more.",
       target: "max-velocity-card",
       visible: ["path-canvas", "simulation-transport"],
       interact: constraintExploration,
       prepare: { ...constraints(), selectElement: bend },
-      check: outcome((path) =>
-        feedback(
-          path.path_elements.some(
-            (element) =>
-              isTranslationTarget(element) &&
-              element.handoff_radius_source === "manual" &&
-              element.intermediate_handoff_radius_meters !== null,
-          ),
-          "Select a translation radius chip and choose Manual.",
+      element: () => 2,
+      showMe: [
+        { ...openCell("testid:handoff-radius-chip-2"), echo: "lesson-element" },
+        "text:Manual",
+      ],
+      check: outcome((path) => {
+        const manual = path.path_elements.map(
+          (element) =>
+            isTranslationTarget(element) &&
+            element.handoff_radius_source === "manual" &&
+            element.intermediate_handoff_radius_meters !== null,
+        );
+        return feedback(
+          manual[2],
+          manual.some(Boolean)
+            ? "That’s another point’s radius. Intermediate’s is the third m cell."
+            : "",
           "This radius keeps your value when you generate.",
-        ),
-      ),
+        );
+      }),
     }),
     tuningStep({
-      title: "Make a velocity Manual",
-      task: "Set a velocity cell to Manual",
-      body: "Select a velocity cell, choose Manual, and change its limit. Generate keeps manual values.",
+      title: "Make a speed limit Manual",
+      task: "Make a speed limit Manual",
+      body: "Pick an m/s cell, choose Manual, and change its value.",
       target: "max-velocity-card",
       visible: ["path-canvas", "simulation-transport"],
       interact: constraintExploration,
       prepare: constraints(4),
+      showMe: [openCell("lesson-speed-4"), "text:Manual"],
       check: outcome((path) =>
         feedback(
           path.ranged_constraints.some(
@@ -759,14 +754,14 @@ export const pathTuningTour: TourDefinition = {
               constraint.source !== "auto_velocity" &&
               constraint.value > 0,
           ),
-          "Select a velocity cell and choose Manual.",
+          "",
           "This limit keeps your value when you generate.",
         ),
       ),
     }),
     tuningStep({
-      title: "Explore radii and velocities",
-      body: "Try other radii and speed limits and play the path after each change. Generate again whenever you like.",
+      title: "Explore radii and speed limits",
+      body: "Try other radii and speed limits, and play the path after each change. Generate again whenever you like.",
       target: "max-velocity-card",
       visible: ["path-canvas", "simulation-transport"],
       interact: constraintExploration,
@@ -788,10 +783,10 @@ const rotationChanged = (path: PathModel) => {
 export const rotationTargetsTour: TourDefinition = {
   id: "rotation-targets",
   title: "Rotation targets",
-  summary: "Set headings and see how speed affects turning",
+  summary: "Turn the robot partway along a path and see how speed affects it",
   durationMinutes: 4,
   recap: [
-    "A rotation target sets the robot’s heading partway along a segment.",
+    "A rotation target sets which way the robot faces partway along a stretch.",
     "Profiled Rotation spreads a turn along the path; driving slower gives a turn more time.",
   ],
   practicePath: createRotationLessonPath,
@@ -800,30 +795,30 @@ export const rotationTargetsTour: TourDefinition = {
     {
       title: "Add a rotation target",
       task: "Place a rotation target between Start and End",
-      body: "A rotation target sets the robot’s heading partway along a segment. Choose Rotation, then click the segment.",
-      why: "Heading, also called rotation, is the direction the robot faces. This path has a 2 m/s speed limit.",
+      body: "A rotation target turns the robot partway along a stretch.",
+      why: "Rotation is the way the robot faces. This path has a 2 m/s speed limit.",
       target: "tool-rotation",
       visible: ["path-canvas"],
       interact: [...elementExploration, "tool-rotation"],
       autoGenerate: false,
       prepare: { ...properties(0), simulation: "start" },
+      segment: (path) => [0, lastAnchor(path)],
+      showMe: [chooseTool("rotation"), "lesson-segment"],
       check: outcome((path) =>
-        feedback(
-          path.path_elements.some(isRotationTarget),
-          "Choose Rotation and click the segment.",
-          "Rotation target placed.",
-        ),
+        feedback(path.path_elements.some(isRotationTarget), "", ""),
       ),
     },
     {
       title: "Move the rotation target",
-      task: "Move the rotation target",
-      body: "Drag it along the path or change Rotation Pos: 0 is the start of the segment and 1 is its end.",
+      task: "Slide the rotation target along the path",
+      body: "Rotation Pos works like Event Pos: 0 where the stretch starts, 1 where it ends.",
       target: "element-properties",
       visible: ["path-canvas", "simulation-transport"],
       interact: elementExploration,
       autoGenerate: false,
       prepare: properties(rotation),
+      element: (path) => indexOrNull(rotation(path)),
+      showMe: [{ target: "lesson-element", echo: "label:Rotation Pos (0-1)" }],
       check: outcome((path) => {
         const target = path.path_elements.find(isRotationTarget);
         const before = baselinePath?.path_elements.find(isRotationTarget);
@@ -831,30 +826,26 @@ export const rotationTargetsTour: TourDefinition = {
           !!target &&
             !!before &&
             Math.abs(target.t_ratio - before.t_ratio) > 0.01,
-          "Drag the rotation target or edit Rotation Pos.",
-          "Keep exploring or Continue.",
+          "",
+          "",
         );
       }),
     },
     {
-      title: "Try a heading in motion",
-      task: "Change the heading, then press Play",
-      body: "Drag the rotation handle or type an angle in degrees, then watch the robot turn.",
+      title: "Try a rotation in motion",
+      task: "Change its rotation, then press Play",
+      body: "Drag its rotation handle, or type degrees in Rotation (deg).",
       target: "element-properties",
       visible: ["path-canvas", "simulation-transport"],
       interact: elementExploration,
       autoGenerate: false,
       prepare: properties(rotation),
+      element: (path) => indexOrNull(rotation(path)),
       checks: [
         {
-          label: "Heading changed",
-          check: outcome((path) =>
-            feedback(
-              rotationChanged(path),
-              "Drag the rotation handle or type a new angle.",
-              "",
-            ),
-          ),
+          label: "Rotation changed",
+          showMe: [{ target: "label:Rotation (deg)", echo: "lesson-element" }],
+          check: outcome((path) => feedback(rotationChanged(path), "", "")),
         },
         played,
       ],
@@ -862,7 +853,7 @@ export const rotationTargetsTour: TourDefinition = {
     {
       title: "Try Profiled Rotation",
       task: "Turn Profiled Rotation off, then press Play",
-      body: "Profiled Rotation spreads the turn along the path. Turned off, the robot turns toward the new heading as fast as its limits allow.",
+      body: "On: the turn spreads along the path. Off: a full-speed turn.",
       target: "element-properties",
       visible: ["path-canvas", "simulation-transport"],
       interact: elementExploration,
@@ -871,13 +862,14 @@ export const rotationTargetsTour: TourDefinition = {
       checks: [
         {
           label: "Profiled Rotation off",
+          showMe: ["label:Profiled Rotation"],
           check: outcome((path) =>
             feedback(
               path.path_elements.some(
                 (element) =>
                   isRotationTarget(element) && !element.profiled_rotation,
               ),
-              "Turn the Profiled Rotation switch off.",
+              "",
               "",
             ),
           ),
@@ -888,11 +880,12 @@ export const rotationTargetsTour: TourDefinition = {
     {
       title: "When translation is too fast",
       task: "Play the fast rotation example",
-      body: "This path asks for 0°, then 180°, then 0° at speed. Watch the middle target: the robot may pass it before it finishes turning.",
+      body: "This path asks for 0°, then 180°, then 0° at speed. Watch the middle target.",
       target: "transport-play",
       visible: ["path-canvas", "path-health"],
       interact: [...playback, "path-health", "lesson-health-dialog"],
       autoGenerate: false,
+      showMe: [{ target: "transport-play" }],
       prepare: {
         practicePath: createFastRotationPath,
         inspector: "open",
@@ -902,13 +895,13 @@ export const rotationTargetsTour: TourDefinition = {
       },
       check: action(
         "play",
-        "Press Play and watch the heading at the middle target.",
-        "The turn needs more time than this approach allows.",
+        "",
+        "The robot passed the middle target before it finished turning.",
       ),
     },
     {
       title: "Give the turn enough time",
-      body: "The rotation warning flags turns that need more time. Lower the manual speed limit and play again; a slower drive gives the robot time to turn.",
+      body: "The rotation warning flags turns that need more time. Lower the speed limit and play again; driving slower gives the robot time to turn.",
       target: "max-velocity-card",
       visible: ["path-canvas", "simulation-transport", "path-health"],
       interact: [
@@ -926,11 +919,11 @@ export const rotationTargetsTour: TourDefinition = {
 export const eventTriggersTour: TourDefinition = {
   id: "event-triggers",
   title: "Event triggers",
-  summary: "Move an event and add another on a different segment",
+  summary: "Move an event and add another on the next stretch",
   durationMinutes: 3,
   eventKeys: ["startIntake", "stopIntake"],
   recap: [
-    "An event trigger sits at a position along a segment, from 0 to 1.",
+    "An event trigger sits partway along a stretch of path, from 0 at its start to 1 at its end.",
     "When the robot crosses it, BLine sends its Lib Key to your robot code.",
   ],
   practicePath: createEventLessonPath,
@@ -938,12 +931,14 @@ export const eventTriggersTour: TourDefinition = {
   steps: [
     {
       title: "Slide an event trigger",
-      task: "Move `startIntake`",
-      body: "Drag `startIntake` along the path or change Event Pos: 0 is the start of its segment and 1 is the end.",
+      task: "Slide `startIntake` along the path",
+      body: "Event Pos says where it sits: 0 where the stretch starts, 1 where it ends.",
       target: "element-properties",
       visible: ["path-canvas", "simulation-transport"],
       interact: elementExploration,
       prepare: properties(event),
+      element: (path) => indexOrNull(event(path)),
+      showMe: [{ target: "lesson-element", echo: "lesson-event-pos" }],
       check: outcome((path) => {
         const target = path.path_elements.find(isEventTrigger);
         const before = baselinePath?.path_elements.find(isEventTrigger);
@@ -951,24 +946,30 @@ export const eventTriggersTour: TourDefinition = {
           !!target &&
             !!before &&
             Math.abs(target.t_ratio - before.t_ratio) > 0.01,
-          "Drag `startIntake` or change Event Pos.",
-          "The event now fires at its new position.",
+          "",
+          "It now fires at the new spot.",
         );
       }),
     },
     {
       title: "Watch the event fire",
-      task: "Play the path through to End",
-      body: "When the robot crosses an event, BLine sends its key to your robot code, which decides what to do. Watch for the purple flash.",
+      task: "Play the path to End",
+      body: "When the robot crosses the event, BLine sends its key to your robot code.",
       target: "transport-play",
       visible: ["path-canvas"],
       interact: playback,
+      showMe: [{ target: "transport-play" }],
       prepare: { simulation: "start", inspector: "closed" },
-      check: action(
-        "finishRun",
-        "Play the path until the robot reaches End.",
-        "The key fired as the robot crossed the event.",
-      ),
+      check: () =>
+        feedback(
+          acted("finishRun"),
+          // Paused partway: the key fires only when the robot gets there.
+          acted("play") &&
+            shown('[data-tour="transport-play"][aria-label="Play simulation"]')
+            ? "Let it run all the way to End."
+            : "",
+          "The purple flash was the key firing.",
+        ),
     },
     {
       title: "Add an event on the next stretch",
@@ -977,7 +978,14 @@ export const eventTriggersTour: TourDefinition = {
       target: "tool-event",
       visible: ["path-canvas", "element-properties"],
       interact: [...elementExploration, "tool-event"],
-      prepare: { ...properties(bend), simulation: "start" },
+      // The sidebar opens once the event is placed; closed, it can’t cover
+      // the canvas in a narrow window.
+      prepare: {
+        inspector: "closed",
+        inspectorTab: "elements",
+        tool: "select",
+        simulation: "start",
+      },
       segment: secondSegment,
       element: (path) => secondSegmentEventIndex(path),
       checks: [
@@ -1004,7 +1012,7 @@ export const eventTriggersTour: TourDefinition = {
         },
         {
           label: "Lib Key `stopIntake`",
-          showMe: [selectSecondSegmentEvent, "lesson-lib-key"],
+          showMe: [openInspector, selectSecondSegmentEvent, "lesson-lib-key"],
           check: outcome((path) => {
             const keys = secondSegmentEvents(path)
               .map((event) => event.lib_key.trim())
@@ -1025,7 +1033,7 @@ export const eventTriggersTour: TourDefinition = {
         },
         {
           label: "Event Pos 0.6",
-          showMe: [selectSecondSegmentEvent, "lesson-event-pos"],
+          showMe: [openInspector, selectSecondSegmentEvent, "lesson-event-pos"],
           check: outcome((path) => {
             const ratio = secondSegmentEvents(path).at(-1)?.t_ratio;
             return feedback(
@@ -1047,7 +1055,7 @@ export const eventTriggersTour: TourDefinition = {
     },
     {
       title: "Try both events",
-      body: "Play the path to see both events fire. Move them to change when they happen.",
+      body: "Play the path to see both events fire. Drag either one to change when it fires.",
       target: "simulation-transport",
       visible: ["path-canvas", "element-properties"],
       interact: [...elementExploration, "tool-event"],

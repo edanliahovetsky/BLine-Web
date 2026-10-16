@@ -17,6 +17,7 @@ import {
 } from "../../../src/ui/tours/tourTransfer";
 import { createImportExportTour } from "../../../src/ui/tours/importExportLesson";
 import { tourStore } from "../../../src/ui/tours/tourStore";
+import { assessTourStep } from "../../../src/ui/tours/tourInteraction";
 
 function startPractice() {
   const lesson = createImportExportTour("browser-web");
@@ -82,14 +83,14 @@ describe("lesson autos folder transfer", () => {
       serializeProjectFiles(expected),
     );
     expect(lesson.steps[1].check!().complete).toBe(true);
-    expect(lesson.steps[2].check!().complete).toBe(false);
+    expect(assessTourStep(lesson.steps[2]).complete).toBe(false);
     projectStore.setState({
       activePathId: state.project!.paths.find(
         (path) => path.file_name === "score-to-pickup.json",
       )!.path_id,
     });
     tourStore.getState().recordAction("play");
-    expect(lesson.steps[2].check!().complete).toBe(true);
+    expect(assessTourStep(lesson.steps[2]).complete).toBe(true);
   });
 
   it("rejects a malformed folder without changing the project or completing the action", async () => {
@@ -156,7 +157,7 @@ describe("lesson autos folder transfer", () => {
     expect(step.check!()).toEqual({
       complete: false,
       message:
-        "That folder didn’t import: The selected folder does not contain any JSON files. Select the autos folder you exported.",
+        "That didn’t import: The selected folder does not contain any JSON files. Pick the autos folder you exported, not a single path.",
     });
     expect(
       await importPracticeFolderWithFeedback(files, capturePracticeTransfer()!),

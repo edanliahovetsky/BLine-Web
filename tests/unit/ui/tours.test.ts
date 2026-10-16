@@ -88,7 +88,7 @@ describe("foundational lesson content", () => {
       ],
       [
         "Settings",
-        ["Robot", "Path Defaults", "Field", "Generator", "Event Triggers"],
+        ["Robot", "Path Defaults", "Field", "Generator", "Lib Keys"],
       ],
       [
         "Advanced",
@@ -118,21 +118,49 @@ describe("foundational lesson content", () => {
         if (step.check || step.checks)
           expect(step.task, `${tour.id}: ${step.title}`).toBeTruthy();
         expect(step.body ?? "").not.toMatch(/Open File → Settings/);
-        // Redesigned steps: the card reads in a glance, with no bare jargon.
-        if (followsProgress(step)) {
-          const visible = [
-            step.task ?? "",
-            step.body ?? "",
-            ...(step.checks ?? []).map((check) => check.label),
-          ].map(plainLessonText);
+        // A card reads at a glance: a task card stays under about 25 words,
+        // a read-only card under 30, and its body never repeats the task.
+        const visible = [
+          step.task ?? "",
+          step.body ?? "",
+          ...(step.checks ?? []).map((check) => check.label),
+        ]
+          .map(plainLessonText)
+          .join(" ")
+          .trim();
+        expect(
+          visible.split(/\s+/).length,
+          `${tour.id}: ${step.title}`,
+        ).toBeLessThanOrEqual(step.task ? 25 : 30);
+        if (step.task && step.body)
           expect(
-            visible.join(" ").split(/\s+/).length,
+            plainLessonText(step.body),
             `${tour.id}: ${step.title}`,
-          ).toBeLessThanOrEqual(25);
-          expect(visible.join(" "), `${tour.id}: ${step.title}`).not.toMatch(
-            /\b(heading|segment|cell beside)\b/i,
-          );
-        }
+          ).not.toContain(plainLessonText(step.task));
+        // Every task's Show me points at the next action, not a whole area.
+        if (step.task)
+          expect(followsProgress(step), `${tour.id}: ${step.title}`).toBe(true);
+      }
+    }
+  });
+
+  it("uses the editor’s own words, never bare jargon", () => {
+    // The UI says Rotation, so lessons never say heading. Segment, chip, and
+    // cell-beside phrasing named things a new learner can’t find.
+    const banned = /\b(headings?|segments?|chips?|cell beside)\b/i;
+    for (const tour of tours) {
+      for (const text of [tour.title, tour.summary, ...tour.recap])
+        expect(plainLessonText(text), tour.id).not.toMatch(banned);
+      for (const step of tour.steps) {
+        const copy = [
+          step.title,
+          step.task ?? "",
+          step.body ?? "",
+          step.why ?? "",
+          ...(step.checks ?? []).map((check) => check.label),
+        ].map(plainLessonText);
+        for (const text of copy)
+          expect(text, `${tour.id}: ${step.title}`).not.toMatch(banned);
       }
     }
   });
@@ -170,9 +198,10 @@ describe("foundational lesson content", () => {
     )!;
     expect(placement.prepare?.practicePath?.().path_elements).toHaveLength(0);
     loadPractice(createPathModel());
+    // Nothing placed yet is not a mistake, so there is no hint.
     expect(assessTourStep(placement).items?.[0]).toMatchObject({
       complete: false,
-      hint: "Choose Waypoint, then click inside Start.",
+      hint: "",
     });
     const explore = fundamentals.steps.find(
       (step) => step.title === "Try more route points",
@@ -322,7 +351,7 @@ describe("foundational lesson content", () => {
     const profile = findTour("rotation-targets")!.steps.find(
       (step) => step.title === "Try Profiled Rotation",
     )!;
-    expect(profile.body).toContain("spreads the turn along the path");
+    expect(profile.body).toContain("the turn spreads along the path");
     expect(profile.checks?.map((check) => check.label)).toEqual([
       "Profiled Rotation off",
       "Played the path",
@@ -418,7 +447,7 @@ describe("foundational lesson content", () => {
       (step) => step.title === "Connect the event keys",
     )!;
     const setExtend = steps.find(
-      (step) => step.title === "Set the extend event",
+      (step) => step.title === "Add the extend event",
     )!;
     const path = createEventLessonPath();
     const event = path.path_elements.find(isEventTrigger)!;

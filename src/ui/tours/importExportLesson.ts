@@ -31,65 +31,110 @@ const activePath = () => {
   );
 };
 
+const shown = (selector: string) =>
+  typeof document !== "undefined" && !!document.querySelector(selector);
+/** Show me's first stop: open File, skipped once File or what it leads to is open. */
+const openFile = (...alsoOpen: string[]) => ({
+  target: "export-menu-entry",
+  done: () =>
+    ['[data-tour="export-menu-entry"][aria-expanded="true"]', ...alsoOpen].some(
+      shown,
+    ),
+});
+
 const webSteps: TourStep[] = [
   {
     title: "Export an autos folder",
     task: "Export the practice autos to a spare folder",
-    body: "Choose File → Export to Robot… and pick a spare folder, not your robot project. Safari, Firefox, and Brave download autos.zip instead; keep it for the next step.",
+    body: "Pick any spare folder, not your robot project. Some browsers download autos.zip instead; keep it.",
     why: "Outside lessons, Export to Robot saves into your robot project’s src/main/deploy/autos and remembers that folder. This practice export never uses or replaces it.",
     target: "export-menu-entry",
     visible: ["path-canvas", "robot-export-dialog"],
     interact: [...fileMenus, "export-to-robot", "robot-export-dialog"],
-    showMe: ["export-menu-entry", "export-to-robot"],
+    showMe: [
+      openFile('[data-tour="robot-export-dialog"]'),
+      {
+        target: "export-to-robot",
+        done: () => shown('[data-tour="robot-export-dialog"]'),
+      },
+      "text:Choose folder…",
+    ],
     prepare: { navigator: "closed", inspector: "closed", simulation: "start" },
-    check: () =>
-      feedback(
-        hasAction("exportFolder"),
-        "Choose Export to Robot… in the File menu.",
-        "Autos exported.",
-      ),
+    check: () => feedback(hasAction("exportFolder"), "", "Autos exported."),
   },
   {
     title: "Import the autos folder",
     task: "Import the autos folder you saved",
-    body: "Choose File → Import / Export → Import Autos Folder and pick the autos folder you exported, or Import Autos ZIP for autos.zip. Either holds config.json, paths, and project.json.",
-    why: "This lesson imports into its practice project, so your own work is untouched.",
+    body: "Use Import Autos Folder, or Import Autos ZIP for autos.zip.",
+    why: "An autos folder holds config.json, paths, and project.json. This lesson imports into its practice project, so your own work is untouched.",
     target: "export-menu-entry",
     interact: [...fileMenus, "lesson-import-folder", "lesson-import-zip"],
+    showMe: [
+      openFile('[data-tour="top-menu-project-transfer"][aria-expanded="true"]'),
+      {
+        target: "top-menu-project-transfer",
+        done: () =>
+          shown(
+            '[data-tour="top-menu-project-transfer"][aria-expanded="true"]',
+          ),
+      },
+      "text:Import Autos Folder...",
+    ],
     check: () => {
       const failure = currentPracticeTransferError();
       return failure && !hasAction("importFolder")
         ? {
             complete: false,
-            message: `That folder didn’t import: ${failure.replace(/\.?$/, ".")} Select the autos folder you exported.`,
+            message: `That didn’t import: ${failure.replace(/\.?$/, ".")} Pick the autos folder you exported, not a single path.`,
           }
-        : feedback(
-            hasAction("importFolder"),
-            "Select the autos folder or autos.zip you exported, not a single path.",
-            "Autos folder imported.",
-          );
+        : feedback(hasAction("importFolder"), "", "Autos folder imported.");
     },
   },
   {
     title: "Check the imported paths",
-    task: "Select Score to Pickup and press Play",
-    body: "Importing a folder brings in all its paths and shared settings together.",
+    task: "Open Score to Pickup and press Play",
+    body: "Importing a folder brings in every path and shared setting together.",
     target: "path-breadcrumb",
     visible: ["path-canvas", "simulation-transport"],
     interact: ["path-breadcrumb", "path-canvas", ...playback],
     prepare: { navigator: "closed", simulation: "start", closeMenus: true },
-    check: () =>
-      feedback(
-        hasAction("importFolder") &&
-          activePath()?.file_name === "score-to-pickup.json" &&
-          hasAction("play"),
-        "Select Score to Pickup and press Play.",
-        "Imported path checked.",
-      ),
+    checks: [
+      {
+        label: "Score to Pickup open",
+        showMe: [
+          {
+            target: "path-breadcrumb",
+            done: () =>
+              shown('[data-tour="path-breadcrumb"] [aria-expanded="true"]'),
+          },
+          "text:Score to Pickup",
+        ],
+        check: () =>
+          feedback(
+            hasAction("importFolder") &&
+              activePath()?.file_name === "score-to-pickup.json",
+            hasAction("importFolder")
+              ? ""
+              : "Nothing was imported yet. Go Back and import the folder.",
+            "",
+          ),
+      },
+      {
+        label: "Played it",
+        showMe: ["transport-play"],
+        check: () =>
+          feedback(
+            activePath()?.file_name === "score-to-pickup.json" &&
+              hasAction("play"),
+            "",
+            "",
+          ),
+      },
+    ],
   },
   {
     title: "Save changes for your robot",
-    body: "Edits save in this browser only. To update the robot, use Export to Robot again, then deploy your robot code.",
+    body: "Edits save in this browser only. To update the robot, Export to Robot again, then deploy your robot code.",
     why: "An imported folder is a copy; it doesn’t stay in sync with the files on disk.",
     visible: ["path-canvas"],
     prepare: { closeMenus: true },
@@ -97,16 +142,14 @@ const webSteps: TourStep[] = [
 ];
 
 function desktopSteps(): TourStep[] {
-  const folderMenuOpened = observedTourCondition(
-    () =>
-      typeof document !== "undefined" &&
-      !!document.querySelector('[data-testid="top-menu-project-folder"]'),
+  const folderMenuOpened = observedTourCondition(() =>
+    shown('[data-testid="top-menu-project-folder"]'),
   );
   return [
     {
       title: "Open an autos folder on desktop",
-      task: "Open File and expand Folder",
-      body: "On desktop, Open Project Folder works directly in an existing autos folder, and Create Project Folder starts a new one.",
+      task: "Open File, then Folder",
+      body: "Open Project Folder edits an autos folder in place. Create Project Folder starts a new one.",
       target: "export-menu-entry",
       visible: ["path-canvas"],
       interact: [
@@ -114,21 +157,18 @@ function desktopSteps(): TourStep[] {
         "export-menu-panel",
         "top-menu-project-folder",
       ],
+      showMe: [openFile(), "top-menu-project-folder"],
       prepare: { navigator: "closed", inspector: "closed" },
-      check: () =>
-        feedback(
-          folderMenuOpened(),
-          "Open File, then expand Folder.",
-          "These commands open or create your autos folder.",
-        ),
+      check: () => feedback(folderMenuOpened(), "", ""),
     },
     {
       title: "Edit a path in the folder",
       task: "Change End’s X position",
-      body: "An open folder holds every path and shared setting. End on Start to Score is selected; change its X. Practice edits stay inside the lesson.",
+      body: "End on Start to Score is selected. Practice edits stay inside the lesson.",
       target: "element-properties",
       visible: ["path-canvas"],
       interact: ["inspector-panel", "element-properties", "path-canvas"],
+      showMe: [{ target: "label:X (m)" }],
       prepare: {
         inspector: "open",
         inspectorTab: "elements",
@@ -142,7 +182,7 @@ function desktopSteps(): TourStep[] {
             isWaypoint(end) &&
             Math.abs(end.translation_target.x_meters - scorePose.x_meters) >
               0.05,
-          "Change End’s X position by at least 0.1 m.",
+          "",
           "Path edited.",
         );
       },
@@ -150,21 +190,18 @@ function desktopSteps(): TourStep[] {
     {
       title: "Preview before deploying",
       task: "Play the edited path",
-      body: "In a desktop project, edits save straight to the open folder. Check the save status before you deploy; there’s no need to export.",
+      body: "On desktop, edits save straight to the open folder. There’s no need to export.",
       target: "transport-play",
       visible: ["path-canvas"],
       interact: playback,
+      showMe: [{ target: "transport-play" }],
       prepare: { inspector: "closed", simulation: "start" },
-      check: () =>
-        feedback(
-          hasAction("play"),
-          "Press Play to check the path.",
-          "Path previewed.",
-        ),
+      check: () => feedback(hasAction("play"), "", ""),
     },
     {
       title: "Use the folder in your robot project",
-      body: "Keep the autos folder at src/main/deploy/autos in your robot project. To share it, copy the whole folder: config.json, paths, and project.json.",
+      body: "Keep the autos folder at src/main/deploy/autos in your robot project. To share it, copy the whole folder.",
+      why: "An autos folder holds config.json, paths, and project.json; they belong together.",
       visible: ["path-canvas"],
     },
   ];

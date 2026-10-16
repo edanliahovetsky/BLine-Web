@@ -116,10 +116,8 @@ async function addEvent(
   const b = await canvasNodePosition(page, `path-element-node-${end}`);
   const box = await requiredBox(page.getByTestId("path-stage"));
   await page.mouse.click(box.x + (a.x + b.x) / 2, box.y + (a.y + b.y) / 2);
-  await next(
-    page,
-    key === "startIntake" ? "Set the extend event" : "Set the retract event",
-  );
+  // Placing, naming, and positioning the event are one step.
+  await expect(forward(page)).toBeHidden();
   await number(page, "Event Pos (0-1)", ratio);
   await page.getByLabel("Lib Key", { exact: true }).fill(key);
   await page.getByLabel("Lib Key", { exact: true }).press("Tab");
@@ -191,9 +189,12 @@ for (const viewport of [
       dialog.getByLabel("Robot Width (m)", { exact: true }),
     ).toHaveValue("1.2");
     await expect(forward(page)).toBeVisible();
-    await page
-      .getByTestId("tour-card")
-      .getByRole("button", { name: "Restart step", exact: true })
+    const card = page.getByTestId("tour-card");
+    await card
+      .getByRole("button", { name: "Lesson options", exact: true })
+      .click();
+    await card
+      .getByRole("menuitem", { name: "Restart step", exact: true })
       .click();
     await expect(
       dialog.getByLabel("Robot Width (m)", { exact: true }),
@@ -235,14 +236,13 @@ for (const viewport of [
     );
     await expect(forward(page)).toBeHidden();
     await hide.fill("stopIntake");
-    await next(page, "Place the extend event");
+    await next(page, "Add the extend event");
     await addEvent(page, 0, 1, "startIntake", "0.3");
-    await next(page, "Place the retract event");
+    await next(page, "Add the retract event");
     await addEvent(page, 2, 3, "stopIntake", "0.7");
     await next(page, "Watch the intake extend and retract");
     await expect(forward(page)).toBeHidden();
     await play(page, true);
-    const card = page.getByTestId("tour-card");
     expect((await snapshot(page)).preferences).toEqual(original.preferences);
     await card.getByRole("button", { name: "Finish", exact: true }).click();
     await page
@@ -301,13 +301,10 @@ for (const viewport of [
         await next(page, "Translation defaults");
         await number(page, "Default Max Velocity (m/s)", "4");
         await number(page, "Default Max Accel (m/s2)", "8");
-        await next(page, "Rotation defaults");
-        await layout(page);
-        await next(page, "End tolerance");
+        await next(page, "Rotation and end limits");
       } else if (section.id === "settings-field") {
         await next(page, "Choose a competition field");
         await selectDropdownOption(page, "Field Image", "Reefscape 2025");
-        await next(page, "See the new field");
         await expect
           .poll(() => fieldState(page))
           .toMatchObject({ id: "frc2025-reefscape", imageLoaded: true });
@@ -316,7 +313,6 @@ for (const viewport of [
         await next(page, "Resize the grid");
         await number(page, "Field Length (m)", "12");
         await number(page, "Field Width (m)", "6");
-        await next(page, "See the resized grid");
         await expect
           .poll(() => fieldState(page))
           .toMatchObject({
@@ -333,7 +329,7 @@ for (const viewport of [
         await number(page, "Velocity safety factor", "0.9");
         await next(page, "Keep generation in sync");
         await page.getByRole("switch", { name: "Keep in sync" }).uncheck();
-        await next(page, "Restore automatic updates");
+        await expect(forward(page)).toBeHidden();
         await page.getByRole("switch", { name: "Keep in sync" }).check();
         await next(page, "Tune your robot");
         await expect(

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
-import { ChevronDown, ChevronUp, X } from "lucide-react";
+import { ChevronDown, ChevronUp, MoreHorizontal, X } from "lucide-react";
 import { useDialogFocusTrap } from "../app/useDialogFocusTrap";
 import {
   eventKeyFieldForChip,
@@ -100,6 +100,7 @@ export function TourCardHeader({
   stepIndex,
   stepCount,
   collapsed,
+  actions,
   onToggleCollapsed,
   onLeave,
   onDragStart,
@@ -108,6 +109,8 @@ export function TourCardHeader({
   stepIndex: number;
   stepCount: number;
   collapsed: boolean;
+  /** Less common lesson actions, such as restarting, kept behind ⋯. */
+  actions: readonly { label: string; onSelect(): void }[];
   onToggleCollapsed(): void;
   onLeave(): void;
   onDragStart(event: PointerEvent<HTMLElement>): void;
@@ -125,6 +128,7 @@ export function TourCardHeader({
           {stepIndex + 1} / {stepCount}
         </span>
       </span>
+      {actions.length ? <TourCardMenu actions={actions} /> : null}
       <button
         type="button"
         className="tour-card__icon-button"
@@ -150,6 +154,64 @@ export function TourCardHeader({
         <X size={15} aria-hidden="true" />
       </button>
     </header>
+  );
+}
+
+function TourCardMenu({
+  actions,
+}: {
+  actions: readonly { label: string; onSelect(): void }[];
+}) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: Event) => {
+      if (
+        event instanceof KeyboardEvent
+          ? event.key === "Escape"
+          : !menuRef.current?.contains(event.target as Node)
+      )
+        setOpen(false);
+    };
+    window.addEventListener("keydown", close);
+    window.addEventListener("pointerdown", close, true);
+    return () => {
+      window.removeEventListener("keydown", close);
+      window.removeEventListener("pointerdown", close, true);
+    };
+  }, [open]);
+  return (
+    <div className="tour-card__menu" ref={menuRef}>
+      <button
+        type="button"
+        className="tour-card__icon-button"
+        aria-label="Lesson options"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="Restart…"
+        onClick={() => setOpen(!open)}
+      >
+        <MoreHorizontal size={15} aria-hidden="true" />
+      </button>
+      {open ? (
+        <div className="tour-card__menu-panel" role="menu">
+          {actions.map((action) => (
+            <button
+              key={action.label}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                action.onSelect();
+              }}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 

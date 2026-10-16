@@ -33,7 +33,7 @@ import {
   WhyToggle,
 } from "./TourCard";
 import { trackEventKeyFields } from "./lessonKeyChips";
-import { followsProgress, nextShowMeStop } from "./tourShowMe";
+import { findTourTarget, followsProgress, nextShowMeStop } from "./tourShowMe";
 import { TourGhostPointer } from "./TourGhostPointer";
 
 const cardWidth = 304;
@@ -105,7 +105,6 @@ export function TourOverlay({
   const cardRef = useRef<HTMLElement | null>(null);
   // Where the card last settled, so it moves only when the path needs room.
   const [placement, setPlacement] = useState<CardPlacement | null>(null);
-  const restartLessonButtonRef = useRef<HTMLButtonElement>(null);
   const preparedStepRef = useRef<string | null>(null);
   const capturedStepTokens = useRef(new Set<string>());
   const [rect, setRect] = useState<TourRect | null>(null);
@@ -148,12 +147,13 @@ export function TourOverlay({
       setConfirmation(null);
       // The card must stop being inert before its trigger can receive focus.
       window.requestAnimationFrame(() =>
-        (kind === "restart"
-          ? restartLessonButtonRef.current
-          : cardRef.current?.querySelector<HTMLElement>(
-              '[data-testid="tour-leave"]',
-            )
-        )?.focus(),
+        cardRef.current
+          ?.querySelector<HTMLElement>(
+            kind === "restart"
+              ? '[aria-label="Lesson options"]'
+              : '[data-testid="tour-leave"]',
+          )
+          ?.focus(),
       );
     },
     [setConfirmation],
@@ -311,46 +311,8 @@ export function TourOverlay({
   // Track where the spotlight and interaction holes sit, following layout.
   useEffect(() => {
     const measureTour = (id: string): TourRect | null => {
-      // `lesson-speed-3` is the velocity cell for the drive to point 3.
-      const speedOrdinal =
-        id === "lesson-corner-speed"
-          ? 3
-          : id === "lesson-pickup-speed"
-            ? 2
-            : id === "lesson-delivery-speed"
-              ? 4
-              : Number(/^lesson-speed-(\d+)$/.exec(id)?.[1]) || null;
-      const element = speedOrdinal
-        ? (Array.from(
-            document.querySelectorAll<HTMLElement>(
-              '[data-ranged-constraint-key="max_velocity_meters_per_sec"][data-range-start]',
-            ),
-          ).find(
-            (candidate) =>
-              Number(candidate.dataset.rangeStart) <= speedOrdinal &&
-              Number(candidate.dataset.rangeEnd) >= speedOrdinal,
-          ) ??
-          document.querySelector<HTMLElement>(
-            `[data-testid="constraint-cell-max_velocity_meters_per_sec-${speedOrdinal}"]`,
-          ))
-        : id === "lesson-health-dialog"
-          ? document.querySelector<HTMLElement>(
-              '[role="dialog"][aria-label="Path health"]',
-            )
-          : id === "lesson-lib-key" || id === "lesson-event-pos"
-            ? (document
-                .querySelector<HTMLElement>(
-                  `[data-testid="property-editor"] input[aria-label="${
-                    id === "lesson-lib-key" ? "Lib Key" : "Event Pos (0-1)"
-                  }"]`,
-                )
-                ?.closest<HTMLElement>(".property-row") ?? null)
-            : document.querySelector<HTMLElement>(`[data-tour="${id}"]`);
-      if (!element) {
-        return null;
-      }
-
-      return visibleTourRect(element);
+      const element = findTourTarget(id);
+      return element ? visibleTourRect(element) : null;
     };
 
     const measureTargets = (token: string) =>
@@ -591,7 +553,7 @@ export function TourOverlay({
         // Let an editor popup consume Escape before the lesson sees it.
         if (
           document.querySelector(
-            '[data-tour="constraint-popout"], [data-tour="element-add-menu"], [data-tour="element-link-menu"], [data-tour="element-type-menu"], [data-tour="event-key-menu"], [data-tour="event-key-options"], [data-tour="project-navigator"], [data-tour="linked-elements-dialog"], [data-tour="settings-dialog"]:not([data-walkthrough]), [data-tour="robot-export-dialog"], .top-menu__panel, [data-tour="path-breadcrumb"] [role="listbox"], [role="dialog"][aria-label="Path health"]',
+            '.tour-card__menu-panel, [data-tour="constraint-popout"], [data-tour="element-add-menu"], [data-tour="element-link-menu"], [data-tour="element-type-menu"], [data-tour="event-key-menu"], [data-tour="event-key-options"], [data-tour="project-navigator"], [data-tour="linked-elements-dialog"], [data-tour="settings-dialog"]:not([data-walkthrough]), [data-tour="robot-export-dialog"], .top-menu__panel, [data-tour="path-breadcrumb"] [role="listbox"], [role="dialog"][aria-label="Path health"]',
           )
         )
           return;
@@ -929,6 +891,20 @@ export function TourOverlay({
           stepIndex={stepIndex}
           stepCount={stepCount}
           collapsed={collapsed}
+          actions={[
+            ...(onRestartStep && !step.canvasLesson
+              ? [{ label: "Restart step", onSelect: onRestartStep }]
+              : []),
+            ...(onRestartLesson
+              ? [
+                  {
+                    label: "Restart lesson",
+                    onSelect: () =>
+                      setConfirmation({ token: stepToken, kind: "restart" }),
+                  },
+                ]
+              : []),
+          ]}
           onToggleCollapsed={() =>
             setCollapsedTour(collapsed ? null : activeTourId)
           }
@@ -968,7 +944,19 @@ export function TourOverlay({
             ) : null}
             {items ? (
               <TourChecklist items={items} reviewing={isReviewing} />
-            ) : step.check && (canContinue || feedback) ? (
+            ) : null}
+            {items &&
+            feedback &&
+            !canContinue &&
+            items.every((item) => item.complete) ? (
+              // Every item passes but the step as a whole does not yet.
+              <div className="tour-card__action-status" role="status">
+                <span aria-hidden="true">○</span>
+                <span>
+                  <LessonText text={feedback} />
+                </span>
+              </div>
+            ) : !items && step.check && (canContinue || feedback) ? (
               <div
                 className={`tour-card__action-status ${
                   canContinue ? "is-complete" : ""
@@ -1032,31 +1020,15 @@ export function TourOverlay({
             </div>
             <div className="tour-card__footer">
               <div className="tour-card__recovery">
-                {onRestartStep && (
+                {onRestartStep && step.canvasLesson ? (
                   <button
                     type="button"
                     onClick={onRestartStep}
-                    title={
-                      step.canvasLesson
-                        ? "Replay this animation"
-                        : "Reset this exercise to its starting state"
-                    }
+                    title="Replay this animation"
                   >
-                    {step.canvasLesson ? "Replay" : "Restart step"}
+                    Replay
                   </button>
-                )}
-                {onRestartLesson && (
-                  <button
-                    type="button"
-                    ref={restartLessonButtonRef}
-                    onClick={() =>
-                      setConfirmation({ token: stepToken, kind: "restart" })
-                    }
-                    title="Start this lesson again"
-                  >
-                    Restart lesson
-                  </button>
-                )}
+                ) : null}
               </div>
               <div className="tour-card__actions">
                 <button

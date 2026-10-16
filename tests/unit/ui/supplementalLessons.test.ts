@@ -200,6 +200,9 @@ describe("supplemental lessons", () => {
     projectStore
       .getState()
       .linkPathElementToTarget(ids.scorePickup, 0, targetId);
+    // The step also asks for Score to Pickup to be the open path.
+    expect(check("linked-elements", "Link the next path's Start")).toBe(false);
+    projectStore.setState({ activePathId: ids.scorePickup });
     expect(check("linked-elements", "Link the next path's Start")).toBe(true);
     const localConstraints = projectStore
       .getState()
@@ -306,12 +309,10 @@ describe("supplemental lessons", () => {
       .find((tour) => tour.id === "path-linking")!
       .steps.map((step) => `${step.body} ${step.why ?? ""}`)
       .join(" ");
-    expect(lessonCopy).toContain("prevents the robot from slowing to a stop");
+    expect(lessonCopy).toContain("keeps the robot from slowing to a stop");
     expect(lessonCopy).toContain(
-      "Run the next path immediately after the first in your robot code",
+      "Run the next path right after the first in your robot code",
     );
-    expect(lessonCopy).toContain("This preview plays one path at a time");
-    expect(lessonCopy).toContain("drag it to the W2 cell, which is End");
-    expect(lessonCopy).toContain("smooth, unbroken transition");
+    expect(lessonCopy).toContain("W1 is Start and W2 is End");
   });
 });

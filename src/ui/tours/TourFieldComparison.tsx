@@ -43,6 +43,12 @@ export function TourFieldComparison({
         path={path}
         index={step?.element?.(path) ?? null}
       />
+      {path.preview?.start_pose ? (
+        <PointCue
+          id="lesson-start-pose"
+          point={modelToStagePoint(path.preview.start_pose, viewport)}
+        />
+      ) : null}
       {handoff && (
         <TourHandoffGuide
           viewport={viewport}
@@ -126,11 +132,26 @@ function ElementCue({
   const position =
     index === null ? null : getElementPosition(path.path_elements, index);
   if (!position) return null;
-  const point = modelToStagePoint(position, viewport);
+  return (
+    <PointCue
+      id="lesson-element"
+      point={modelToStagePoint(position, viewport)}
+    />
+  );
+}
+
+/** An invisible box around a canvas point, such as the preview's start. */
+function PointCue({
+  id,
+  point,
+}: {
+  id: string;
+  point: { x: number; y: number };
+}) {
   return (
     <div
       className="tour-segment-cue"
-      data-tour="lesson-element"
+      data-tour={id}
       aria-hidden="true"
       style={{
         left: point.x - elementCueRadius,
