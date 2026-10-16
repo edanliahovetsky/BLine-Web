@@ -238,10 +238,19 @@ export function TourRecap({
   onAllLessons(): void;
   onClose(): void;
 }) {
-  const primaryRef = useRef<HTMLButtonElement>(null);
+  // Focus stays in the editor, so Space plays the path instead of pressing
+  // Next. Escape still closes the recap from anywhere.
   useEffect(() => {
-    primaryRef.current?.focus();
-  }, []);
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('input, textarea, select, [contenteditable="true"]'))
+        return;
+      onClose();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
   return (
     <section
       className="tour-card tour-recap"
@@ -249,12 +258,6 @@ export function TourRecap({
       role="dialog"
       aria-modal="false"
       aria-label={`${lessonTitle} complete`}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          onClose();
-        }
-      }}
     >
       <header className="tour-card__header">
         <span className="tour-card__handle">
@@ -281,7 +284,6 @@ export function TourRecap({
         </button>
         {nextLesson ? (
           <button
-            ref={primaryRef}
             type="button"
             className="is-primary"
             data-testid="tour-next-lesson"

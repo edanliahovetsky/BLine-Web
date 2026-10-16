@@ -1441,6 +1441,30 @@ test("Show me points at the next action and follows progress", async ({
   await expect(spotlight).toHaveCount(0);
 });
 
+test("Space after a finished lesson plays the path, not the next lesson", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  await openLesson(page, "Event triggers");
+  await heading(page, "Slide an event trigger");
+  await page.evaluate(async () => {
+    const { tourStore }: typeof import("../../src/ui/tours/tourStore") =
+      await import(/* @vite-ignore */ "/src/ui/tours/tourStore.ts" as string);
+    for (let step = 0; step < 3; step += 1) tourStore.getState().next(4);
+  });
+  await heading(page, "Try both events");
+  await finish(page, { keepRecap: true });
+  const recap = page.getByTestId("tour-recap");
+  await page.keyboard.press(" ");
+  await expect(
+    page.getByRole("button", { name: "Pause simulation", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByTestId("tour-card")).toHaveCount(0);
+  await expect(recap).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(recap).toHaveCount(0);
+});
+
 test("Escape in a lesson text field cancels the edit, not the lesson", async ({
   page,
 }) => {
@@ -1946,7 +1970,7 @@ async function advance(page: Page) {
   await advanceButton(page).click();
 }
 
-async function finish(page: Page) {
+async function finish(page: Page, { keepRecap = false } = {}) {
   await auditLayout(page);
   await page
     .getByTestId("tour-card")
@@ -1954,6 +1978,7 @@ async function finish(page: Page) {
     .click();
   const recap = page.getByTestId("tour-recap");
   await expect(recap).toContainText("Lesson complete");
+  if (keepRecap) return;
   expect(await recap.locator(".tour-recap__lines li").count()).toBeGreaterThan(
     1,
   );
