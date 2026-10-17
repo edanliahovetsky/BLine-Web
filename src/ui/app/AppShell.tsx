@@ -204,6 +204,8 @@ function focusEventKeyField() {
   if (input && (!step || tourAllowsTarget(step, input))) input.focus();
 }
 
+const inspectorDrawerMediaQuery = "(max-width: 1120px)";
+
 export function AppShell() {
   const durableProject = useStoreSelector(
     projectStore,
@@ -367,6 +369,24 @@ export function AppShell() {
     showConfigDialog && !settingsWalkthrough && !activeTourId;
   const inspectorVisible =
     inspectorOpen && !navigatorOpen && !settingsPanelOpen;
+  // Below 1120px the inspector is a drawer over the canvas (AppShell.css), so
+  // the canvas frames the path in the part the drawer leaves uncovered.
+  const [inspectorOverlays, setInspectorOverlays] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      !!window.matchMedia?.(inspectorDrawerMediaQuery).matches,
+  );
+  useEffect(() => {
+    const query = window.matchMedia?.(inspectorDrawerMediaQuery);
+    if (!query) return;
+    const sync = () => setInspectorOverlays(query.matches);
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
+  const canvasCoveredRight =
+    inspectorVisible && inspectorOverlays
+      ? Math.min(380, Math.max(0, workspaceWidth - 44))
+      : 0;
   const [settingsPreview, setSettingsPreview] =
     useState<SettingsDraftPreview | null>(null);
   const navigatorWidthMax = Math.min(
@@ -2827,6 +2847,7 @@ export function AppShell() {
                 controlsRef={pathStageControlsRef}
                 previewConfig={settingsPreview?.config ?? null}
                 curveTool={curveToolSession}
+                coveredRight={canvasCoveredRight}
                 simulationSeekRequest={
                   activeTourId ? tourSimulationSeekRequest : null
                 }
@@ -2853,7 +2874,9 @@ export function AppShell() {
               ) : null}
             </section>
 
-            {inspectorVisible ? (
+            {/* In a lesson the canvas stays usable beside the drawer: steps
+                need both, and the sidebar button still closes it. */}
+            {inspectorVisible && !activeTourId ? (
               <button
                 type="button"
                 className="inspector-backdrop is-open"

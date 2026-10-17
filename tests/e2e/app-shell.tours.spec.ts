@@ -1533,6 +1533,42 @@ test("Show me keeps open menus and walks multi-part steps", async ({
   );
 });
 
+test("frames the lesson path beside the inspector drawer and keeps the canvas usable", async ({
+  page,
+}) => {
+  // Below 1120px the inspector is a drawer over the canvas.
+  await page.setViewportSize({ width: 1028, height: 794 });
+  await page.goto("/?lesson=rotation-targets");
+  await heading(page, "Add a rotation target");
+  const drawer = await requiredBox(page.locator(".inspector-sidebar.is-open"));
+  await expect
+    .poll(() =>
+      page
+        .locator('[data-tour="path-canvas"]')
+        .getAttribute("data-path-rect")
+        .then((rect) => {
+          const [x, , width] = (rect ?? "").split(",").map(Number);
+          return x + width;
+        }),
+    )
+    .toBeLessThan(drawer.x);
+  // The drawer's dismiss backdrop doesn’t swallow lesson clicks on the canvas.
+  await expect(
+    page.getByRole("button", { name: "Dismiss inspector" }),
+  ).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Rotation tool", exact: true })
+    .click();
+  const segment = await requiredBox(
+    page.locator('[data-tour="lesson-segment"]'),
+  );
+  await page.mouse.click(
+    segment.x + segment.width / 2,
+    segment.y + segment.height / 2,
+  );
+  await expect(advanceButton(page)).toBeVisible();
+});
+
 test("Space after a finished lesson plays the path, not the next lesson", async ({
   page,
 }) => {

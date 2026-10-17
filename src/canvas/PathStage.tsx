@@ -149,6 +149,8 @@ const fallbackStageSize: CanvasSize = {
 
 interface PathStageProps {
   field?: ResolvedFieldDefinition;
+  /** Pixels of the stage's right side hidden under an overlaying panel. */
+  coveredRight?: number;
   activeTool?: EditorTool;
   showGhostPaths?: boolean;
   curveTool?: CurveToolSession | null;
@@ -239,6 +241,7 @@ export function PathStage({
   activeTool = "select",
   showGhostPaths = true,
   curveTool = null,
+  coveredRight = 0,
   simulationSeekRequest = null,
   tourMarkers = [],
   onToolChange,
@@ -264,7 +267,19 @@ export function PathStage({
   const activeCurveDraftRef = useRef<ActiveCurveDraft | null>(null);
   const rotationFrameRef = useRef<number | null>(null);
   const [stageMeasured, setStageMeasured] = useState(false);
-  const [stageSize, setStageSize] = useState<CanvasSize>(fallbackStageSize);
+  const [canvasSize, setCanvasSize] = useState<CanvasSize>(fallbackStageSize);
+  // The view frames the part of the canvas a drawn-over panel leaves visible;
+  // the canvas itself still paints its full size underneath.
+  const stageSize = useMemo<CanvasSize>(
+    () =>
+      coveredRight > 0
+        ? {
+            width: Math.max(320, canvasSize.width - coveredRight),
+            height: canvasSize.height,
+          }
+        : canvasSize,
+    [canvasSize, coveredRight],
+  );
   const stageOriginRef = useRef<StagePoint>({ x: 0, y: 0 });
   const viewAnimationRef = useRef<{
     frame: number;
@@ -556,7 +571,7 @@ export function PathStage({
         Math.floor(rect.height) || Math.round(width / activeFieldAspectRatio),
       );
       stageOriginRef.current = { x: rect.left, y: rect.top };
-      setStageSize({ width, height });
+      setCanvasSize({ width, height });
       setStageMeasured(rect.width > 0 && rect.height > 0);
     };
 
@@ -1294,7 +1309,7 @@ export function PathStage({
       ),
     );
     return {
-      stageSize,
+      stageSize: canvasSize,
       viewport,
       field: renderField,
       path: activePath?.path ?? null,
@@ -1335,7 +1350,7 @@ export function PathStage({
     simulationPlaying,
     simulationResult,
     simulationTime,
-    stageSize,
+    canvasSize,
     trajectoryMaxSpeedMps,
     viewport,
     canvasLesson,
@@ -1557,6 +1572,7 @@ export function PathStage({
     framePathRef.current = framePath;
     resetViewRef.current = resetView;
   }, [framePath, resetView]);
+
 
   // Requests arrive alongside layout changes (a lesson opening the inspector),
   // so wait for the resize to land before framing.

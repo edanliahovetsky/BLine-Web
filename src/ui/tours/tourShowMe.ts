@@ -180,8 +180,8 @@ const shownNow = (selector: string) => !!document.querySelector(selector);
 
 /**
  * Stops that bring an element's properties on screen: open the sidebar, show
- * Elements, then select the element on the canvas (the step's
- * `lesson-element` cue). Put them before a stop at a property field.
+ * Elements, then select the element's row, which stays visible even when the
+ * element is off the canvas. Put them before a stop at a property field.
  */
 export function showProperties(
   index: (path: PathModel) => number | null,
@@ -198,7 +198,11 @@ export function showProperties(
         shownNow('[data-tour="inspector-elements"][aria-selected="true"]'),
     },
     {
-      target: "lesson-element",
+      target: () => {
+        const path = activePathForProjectStore(projectStore.getState())?.path;
+        return `testid:path-element-row-${(path && index(path)) ?? 0}`;
+      },
+      echo: "lesson-element",
       done: () => {
         const path = activePathForProjectStore(projectStore.getState())?.path;
         const wanted = path ? index(path) : null;
