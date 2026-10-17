@@ -5,19 +5,16 @@ import {
   requiredBox,
 } from "./support/app-shell-shared";
 import { openPathLibraryDialog } from "./support/app-shell-project-library";
-import { softwareRendering } from "./support/software-rendering";
-
-test.use(softwareRendering);
+import {
+  focusCount,
+  port,
+  row,
+  seedLongLibrary,
+  startDrag,
+} from "./support/app-shell-path-groups";
 
 const sample = "Sample Path";
 const focusName = (nav: Locator) => nav.getByTestId("path-library-focus-name");
-const focusCount = (nav: Locator) =>
-  nav.getByTestId("path-library-focus-count");
-const row = (nav: Locator, name: string) =>
-  nav.locator(".fc-row").filter({
-    has: nav.page().getByRole("button", { name: `Focus ${name}`, exact: true }),
-  });
-const port = (nav: Locator, name: string) => row(nav, name).locator(".fc-port");
 async function savedConnectionVisibility(page: Page) {
   return page.evaluate(async () => {
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -80,13 +77,6 @@ async function link(nav: Locator, collection: string, path: string) {
   await expect(port(nav, path)).toHaveAccessibleName(
     `Disconnect ${path} from ${collection}`,
   );
-}
-async function startDrag(page: Page, source: Locator, destination: Locator) {
-  const a = await requiredBox(source),
-    b = await requiredBox(destination);
-  await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 8 });
 }
 
 test("docks the navigator beside the live canvas and restores the inspector @webkit-canvas", async ({
@@ -861,124 +851,6 @@ test("filters connections, keeps row order stable, and aligns links after resizi
   await expect(
     nav.getByRole("textbox", { name: "Path name", exact: true }),
   ).toBeVisible();
-});
-
-async function seedLongLibrary(page: Page, longSide: "path" | "group") {
-  await page.setViewportSize({ width: 1200, height: 580 });
-  await gotoSampleEditor(page);
-  await page.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Save", exact: true }),
-  ).toHaveAttribute("title", /Saved/);
-  // Seed a saved project with real path files, then load it through normal startup.
-  await page.evaluate((side) => {
-    const key = Object.keys(localStorage).find((key) =>
-      key.startsWith("bline-web:workspace:"),
-    )!;
-    const record = JSON.parse(localStorage.getItem(key)!);
-    const metadataFile = record.files.find(
-      (file: { relativePath: string }) => file.relativePath === "project.json",
-    );
-    const metadata = JSON.parse(metadataFile.text);
-    const original = metadata.paths[0];
-    const pathText = record.files.find(
-      (file: { relativePath: string }) =>
-        file.relativePath === `paths/${original.file_name}`,
-    ).text;
-    const neighbors = [0, 12, 14, 18, 22];
-    metadata.paths = Array.from(
-      { length: side === "path" ? 24 : 4 },
-      (_, i) => ({
-        ...original,
-        path_id: `p${i}`,
-        display_name: `Path ${String(i).padStart(2, "0")}`,
-        file_name: `path_${i}.json`,
-      }),
-    );
-    metadata.path_groups = Array.from(
-      { length: side === "group" ? 24 : 3 },
-      (_, i) => ({
-        group_id: `g${i}`,
-        display_name: `Group ${String(i).padStart(2, "0")}`,
-        path_ids:
-          side === "path"
-            ? i === 0
-              ? neighbors.map((n) => `p${n}`)
-              : i === 1
-                ? ["p0"]
-                : []
-            : neighbors.includes(i)
-              ? ["p0"]
-              : [],
-      }),
-    );
-    record.files = [
-      ...record.files.filter(
-        (file: { relativePath: string }) =>
-          !file.relativePath.startsWith("paths/") &&
-          file.relativePath !== "project.json",
-      ),
-      { relativePath: "project.json", text: JSON.stringify(metadata) },
-      ...metadata.paths.map((path: { file_name: string }) => ({
-        relativePath: `paths/${path.file_name}`,
-        text: pathText,
-      })),
-    ];
-    localStorage.setItem(key, JSON.stringify(record));
-  }, longSide);
-  await page.reload();
-  await expect(page.getByTestId("path-stage")).toBeVisible();
-  const nav = await openPathLibraryDialog(page);
-  await nav
-    .getByRole("button", {
-      name: `Focus ${longSide === "path" ? "Group" : "Path"} 00`,
-      exact: true,
-    })
-    .click();
-  return nav;
-}
-
-test("keeps the final Navigator row clear of drag feedback @webkit-canvas", async ({
-  page,
-}, testInfo) => {
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  const nav = await seedLongLibrary(page, "path");
-  await page.setViewportSize({ width: 1200, height: 600 });
-  await nav
-    .getByRole("button", { name: "Focus Group 02", exact: true })
-    .click();
-  const list = nav.locator('.fc-list-scroll[data-kind="path"]');
-  if (testInfo.project.name === "chromium") {
-    const bounds = await requiredBox(nav);
-    await expect(page).toHaveScreenshot("navigator-list-bottom-edge.png", {
-      clip: {
-        x: bounds.x,
-        y: bounds.y + bounds.height - 180,
-        width: bounds.width,
-        height: 180,
-      },
-      animations: "disabled",
-    });
-  }
-  await list.hover();
-  await page.mouse.wheel(0, 2200);
-  await expect
-    .poll(() => list.evaluate((el) => el.scrollTop))
-    .toBeGreaterThan(700);
-  const last = row(nav, "Path 23");
-  const before = await requiredBox(last);
-  await startDrag(page, port(nav, "Path 23"), port(nav, "Group 02"));
-  await expect(nav.locator(".fc-wire-preview.is-snapped")).toHaveCount(1);
-  const status = await requiredBox(nav.locator(".fc-status"));
-  expect(before.y + before.height).toBeLessThan(status.y - 6);
-  expect((await requiredBox(last)).y).toBe(before.y);
-  if (testInfo.project.name === "chromium") {
-    await expect(nav).toHaveScreenshot("navigator-drag-node-outlines.png", {
-      animations: "disabled",
-    });
-  }
-  await page.mouse.up();
-  await expect(focusCount(nav)).toHaveText("1 Path connected");
 });
 
 for (const longSide of ["path", "group"] as const) {
