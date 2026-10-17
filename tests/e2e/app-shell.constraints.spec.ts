@@ -3,6 +3,7 @@ import {
   canvasNodePosition,
   modelToCanvasPoint,
   pointDistance,
+  waitForStageSettled,
 } from "./support/app-shell-canvas";
 import {
   gotoManualConstraintEditor,
@@ -713,6 +714,7 @@ test("starts automatic generation after an opened project creates a Path with th
 }) => {
   await gotoManualConstraintEditor(page);
   await createNewPathFromTopMenu(page, "Curve Generated");
+  await waitForStageSettled(page);
 
   const canvas = page.getByTestId("path-stage-canvas");
   const canvasBox = await requiredBox(canvas);

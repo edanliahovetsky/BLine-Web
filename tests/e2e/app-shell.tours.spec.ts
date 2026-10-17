@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { PathModel } from "../../src/core/model/path";
+import { waitForStageSettled } from "./support/app-shell-canvas";
 import { openConstraintsTab } from "./support/app-shell-constraints";
 import { activeFieldLabel } from "./support/app-shell-fields";
 import {
@@ -2219,40 +2220,13 @@ async function setNumber(page: Page, label: string, value: string) {
 }
 
 async function fieldPoint(page: Page, x: number, y: number) {
-  await settledCanvas(page);
+  await waitForStageSettled(page);
   const box = await requiredBox(page.getByTestId("path-stage"));
   const scale = Math.min((box.width - 48) / 18, (box.height - 48) / 9);
   return {
     x: box.x + (box.width - 18 * scale) / 2 + x * scale,
     y: box.y + (box.height - 9 * scale) / 2 + (9 - y) * scale,
   };
-}
-
-/**
- * Field coordinates are only meaningful once a step's inspector, navigator or
- * framing transition has landed, so wait until the stage box and zoom hold
- * still for a few frames.
- */
-async function settledCanvas(page: Page) {
-  await page.getByTestId("path-stage").evaluate(
-    (stage) =>
-      new Promise<void>((resolve) => {
-        let last = "";
-        let stableFrames = 0;
-        const tick = () => {
-          const box = stage.getBoundingClientRect();
-          const zoom = document.querySelector(
-            '[aria-label="Fit view"]',
-          )?.textContent;
-          const key = [box.x, box.y, box.width, box.height, zoom].join();
-          stableFrames = key === last ? stableFrames + 1 : 0;
-          last = key;
-          if (stableFrames >= 3) resolve();
-          else requestAnimationFrame(tick);
-        };
-        requestAnimationFrame(tick);
-      }),
-  );
 }
 
 async function clickField(page: Page, x: number, y: number) {

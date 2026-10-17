@@ -175,3 +175,30 @@ export async function waitForCanvasSettled(
     )
     .toBe(true);
 }
+
+/**
+ * Like waitForCanvasSettled, but also works on an empty path: wait until the
+ * stage box and zoom hold still for a few frames, so canvas coordinates are
+ * not taken mid-transition.
+ */
+export async function waitForStageSettled(page: Page): Promise<void> {
+  await page.getByTestId("path-stage").evaluate(
+    (stage) =>
+      new Promise<void>((resolve) => {
+        let last = "";
+        let stableFrames = 0;
+        const tick = () => {
+          const box = stage.getBoundingClientRect();
+          const zoom = document.querySelector(
+            '[aria-label="Fit view"]',
+          )?.textContent;
+          const key = [box.x, box.y, box.width, box.height, zoom].join();
+          stableFrames = key === last ? stableFrames + 1 : 0;
+          last = key;
+          if (stableFrames >= 3) resolve();
+          else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+  );
+}
