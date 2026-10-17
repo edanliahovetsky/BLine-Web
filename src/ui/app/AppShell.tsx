@@ -349,10 +349,13 @@ export function AppShell() {
   const autoGenerationAllowed = activeTourStep?.autoGenerate !== false;
   const [tourSimulationSeekRequest, setTourSimulationSeekRequest] =
     useState<SimulationSeekRequest | null>(null);
-  // The inspector docks beside the canvas at every width; only a phone-sized
-  // screen starts with it closed so the canvas has room.
+  // The inspector docks beside the canvas, or below it in a tall window.
+  // Only a short, narrow screen starts with it closed so the canvas has room.
   const [inspectorOpen, setInspectorOpen] = useState(
-    () => typeof window === "undefined" || window.innerWidth > 640,
+    () =>
+      typeof window === "undefined" ||
+      window.innerWidth > 640 ||
+      window.innerHeight > window.innerWidth,
   );
   const [inspectorWidth, setInspectorWidth] = useState(
     () => readEditorUiPreferences().inspectorWidth,

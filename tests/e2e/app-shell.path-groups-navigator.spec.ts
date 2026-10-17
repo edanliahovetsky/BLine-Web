@@ -210,11 +210,16 @@ test("resizes the navigator with pointer and keyboard while retaining canvas spa
   await dismissMobileSupportWarning(page);
   await expect(nav).toBeVisible();
   await expect(divider).toHaveAttribute("aria-valuenow", "273");
+  // A tall window stacks: the canvas spans the width and the Navigator
+  // fills the space below it.
   const portraitNavigator = await requiredBox(nav);
   const portraitCanvas = await requiredBox(canvas);
-  expect(portraitNavigator.height).toBeGreaterThan(700);
-  expect(portraitCanvas.height).toBeCloseTo(portraitNavigator.height, 1);
-  expect(portraitCanvas.x).toBeCloseTo(portraitNavigator.width, 1);
+  expect(portraitCanvas.width).toBeCloseTo(390, 0);
+  expect(portraitNavigator.width).toBeCloseTo(390, 0);
+  expect(portraitNavigator.y).toBeGreaterThanOrEqual(
+    portraitCanvas.y + portraitCanvas.height - 1,
+  );
+  expect(portraitNavigator.height).toBeGreaterThan(350);
   await nav.getByRole("button", { name: "Close", exact: true }).click();
   await expect(nav).toHaveCount(0);
 });

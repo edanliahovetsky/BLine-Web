@@ -329,7 +329,9 @@ test("keeps the canvas bounded on a narrow viewport", async ({ page }) => {
   const viewportHeight = page.viewportSize()?.height ?? 900;
 
   expect(documentHeight).toBeLessThan(1_850);
-  expect(stageBox.height).toBeGreaterThan(450);
+  // The inspector stacks below a canvas sized for the 2:1 field.
+  expect(stageBox.width).toBeCloseTo(450, 0);
+  expect(stageBox.height).toBeGreaterThan(300);
   expect(stageBox.height).toBeLessThan(viewportHeight);
 });
 
@@ -397,8 +399,9 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
   ]) {
     await page.setViewportSize(viewport);
     await gotoSampleEditor(page);
-    if (viewport.width < 980) {
-      await page.getByRole("button", { name: "Toggle inspector" }).click();
+    const toggle = page.getByRole("button", { name: "Toggle inspector" });
+    if ((await toggle.getAttribute("aria-expanded")) !== "true") {
+      await toggle.click();
     }
     await page.getByRole("tab", { name: /Elements/ }).click();
 
