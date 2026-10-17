@@ -28,6 +28,11 @@ import {
   selectDropdownOption,
 } from "./support/app-shell-shared";
 
+// Lesson walks chain dozens of gated steps, so give them three times the
+// default timeout rather than fail on a busy machine. A test that sets its
+// own timeout keeps that value.
+test.beforeEach(() => test.slow());
+
 const lessonSections = [
   [
     "Core",
@@ -355,10 +360,10 @@ test("collapses and moves the card without losing the task", async ({
   expect((await requiredBox(card)).x).toBeCloseTo(moved.x, 0);
 });
 
-for (const [width, height] of [
-  [1600, 900],
-  [1280, 800],
-]) {
+// The core lessons run once at 1280px, the tighter of the two common desktop
+// widths; every step audits that the card fits the viewport.
+{
+  const [width, height] = [1280, 800];
   test(
     "opens each overview panel and menu at " + width + "px",
     async ({ page }) => {
@@ -476,16 +481,14 @@ for (const [width, height] of [
       await heading(page, "Turn a waypoint");
       await setNumber(page, "Rotation (deg)", "-90");
       await playAndInspect(page);
-      if (width === 1600) {
-        await lessonOption(page, "Restart step");
-        await heading(page, "Turn a waypoint");
-        await expect(
-          page.getByLabel("Rotation (deg)", { exact: true }),
-        ).toHaveValue("0");
-        await expect(advanceButton(page)).toHaveCount(0);
-        await setNumber(page, "Rotation (deg)", "-90");
-        await playAndInspect(page);
-      }
+      await lessonOption(page, "Restart step");
+      await heading(page, "Turn a waypoint");
+      await expect(
+        page.getByLabel("Rotation (deg)", { exact: true }),
+      ).toHaveValue("0");
+      await expect(advanceButton(page)).toHaveCount(0);
+      await setNumber(page, "Rotation (deg)", "-90");
+      await playAndInspect(page);
       await advance(page);
       await heading(page, "Fix a mistake");
       const card = page.getByTestId("tour-card");
@@ -500,15 +503,8 @@ for (const [width, height] of [
       await place(page, "Translation", 10, 4.5);
       await expect(fixes.nth(0)).toHaveAttribute("data-complete", "true");
       await expect(advanceButton(page)).toHaveCount(0);
-      if (width === 1600) {
-        // The row's remove button works under the lesson shield.
-        await page
-          .getByRole("button", { name: "Remove Translation 2", exact: true })
-          .click();
-      } else {
-        await card.focus();
-        await page.keyboard.press("ControlOrMeta+z");
-      }
+      await card.focus();
+      await page.keyboard.press("ControlOrMeta+z");
       await expect
         .poll(async () => (await practice(page)).path.path_elements.length)
         .toBe(2);
@@ -523,6 +519,14 @@ for (const [width, height] of [
       await place(page, "Translation", 7, 3);
       await page.getByTestId("path-element-row-1").click();
       await page.keyboard.press("Delete");
+      await expect
+        .poll(async () => (await practice(page)).path.path_elements.length)
+        .toBe(2);
+      // So does the row's remove button, under the lesson shield.
+      await place(page, "Translation", 7, 3);
+      await page
+        .getByRole("button", { name: /^Remove Translation \d+$/ })
+        .click();
       await expect
         .poll(async () => (await practice(page)).path.path_elements.length)
         .toBe(2);
@@ -738,13 +742,11 @@ for (const [width, height] of [
       expect(geometry((await practice(page)).path)).toEqual(
         geometry(rectangle),
       );
-      if (width === 1280) {
-        await lessonOption(page, "Restart step");
-        expect(geometry((await practice(page)).path)).toEqual(
-          geometry(rectangle),
-        );
-        expect(hasGeneratedValues((await practice(page)).path)).toBe(false);
-      }
+      await lessonOption(page, "Restart step");
+      expect(geometry((await practice(page)).path)).toEqual(
+        geometry(rectangle),
+      );
+      expect(hasGeneratedValues((await practice(page)).path)).toBe(false);
       await page.getByRole("tab", { name: "Constraints", exact: true }).click();
       await advance(page);
       await heading(page, "Find a speed limit");

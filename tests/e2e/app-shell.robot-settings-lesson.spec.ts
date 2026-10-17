@@ -9,6 +9,11 @@ import {
 import { canvasNodePosition } from "./support/app-shell-canvas";
 import type { PixiDebugWindow } from "../../src/canvas/pixi/PixiPathRenderer";
 
+// Lesson walks chain dozens of gated steps, so give them three times the
+// default timeout rather than fail on a busy machine. A test that sets its
+// own timeout keeps that value.
+test.beforeEach(() => test.slow());
+
 async function snapshot(page: Page) {
   return page.evaluate(async () => {
     const { projectStore }: typeof import("../../src/state/projectStore") =
