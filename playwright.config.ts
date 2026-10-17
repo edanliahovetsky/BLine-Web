@@ -18,6 +18,19 @@ const derivedPort =
 const port = Number(process.env.PLAYWRIGHT_PORT ?? derivedPort);
 const baseURL = `http://127.0.0.1:${port}`;
 
+// Headless Chromium draws the Pixi WebGL canvas with SwiftShader on the CPU,
+// which makes canvas-heavy specs CPU-bound and slow under parallel workers.
+// Locally on macOS, draw it on the GPU instead. CI keeps software rendering,
+// as do the screenshot specs (see support/software-rendering.ts), because
+// the committed baselines were rasterized by SwiftShader. Set
+// BLINE_E2E_SOFTWARE_GL=1 to render everything in software locally.
+const gpuLaunchOptions =
+  process.platform === "darwin" &&
+  !process.env.CI &&
+  !process.env.BLINE_E2E_SOFTWARE_GL
+    ? { args: ["--use-angle=metal", "--enable-gpu"] }
+    : {};
+
 export default defineConfig({
   testDir: "./tests/e2e",
   // Hosted macOS runners take longer to paint and complete multi-step flows.
@@ -50,7 +63,7 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
+      use: { ...devices["Desktop Chrome"], launchOptions: gpuLaunchOptions },
     },
     {
       name: "webkit-canvas",

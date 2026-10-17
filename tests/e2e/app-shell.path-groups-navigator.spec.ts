@@ -5,6 +5,9 @@ import {
   requiredBox,
 } from "./support/app-shell-shared";
 import { openPathLibraryDialog } from "./support/app-shell-project-library";
+import { softwareRendering } from "./support/software-rendering";
+
+test.use(softwareRendering);
 
 const sample = "Sample Path";
 const focusName = (nav: Locator) => nav.getByTestId("path-library-focus-name");

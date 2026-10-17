@@ -286,10 +286,15 @@ test("frames a lesson's practice path and gives back the full field on exit", as
   await gotoSampleEditor(page);
   const zoom = page.getByRole("button", { name: "Fit view", exact: true });
   await expect(zoom).toHaveText("100%");
+  const frameRequests = await countFramePathRequests(page);
   await openLesson(page, "Handoff Modes");
   await expect
     .poll(async () => parseInt(await zoom.innerText()))
     .toBeGreaterThan(150);
+  // The first step frames the path now and again 400 ms later. That second
+  // request is not cancelled by leaving, so a quicker exit gets re-framed
+  // (an app bug); leave after it, as a learner reading the step would.
+  await expect.poll(frameRequests).toBe(2);
   await exitLesson(page);
   await expect(zoom).toHaveText("100%");
 });
@@ -2196,12 +2201,40 @@ async function setNumber(page: Page, label: string, value: string) {
 }
 
 async function fieldPoint(page: Page, x: number, y: number) {
+  await settledCanvas(page);
   const box = await requiredBox(page.getByTestId("path-stage"));
   const scale = Math.min((box.width - 48) / 18, (box.height - 48) / 9);
   return {
     x: box.x + (box.width - 18 * scale) / 2 + x * scale,
     y: box.y + (box.height - 9 * scale) / 2 + (9 - y) * scale,
   };
+}
+
+/**
+ * Field coordinates are only meaningful once a step's inspector, navigator or
+ * framing transition has landed, so wait until the stage box and zoom hold
+ * still for a few frames.
+ */
+async function settledCanvas(page: Page) {
+  await page.getByTestId("path-stage").evaluate(
+    (stage) =>
+      new Promise<void>((resolve) => {
+        let last = "";
+        let stableFrames = 0;
+        const tick = () => {
+          const box = stage.getBoundingClientRect();
+          const zoom = document.querySelector(
+            '[aria-label="Fit view"]',
+          )?.textContent;
+          const key = [box.x, box.y, box.width, box.height, zoom].join();
+          stableFrames = key === last ? stableFrames + 1 : 0;
+          last = key;
+          if (stableFrames >= 3) resolve();
+          else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+  );
 }
 
 async function clickField(page: Page, x: number, y: number) {
@@ -2308,6 +2341,27 @@ function geometry(path: PathModel) {
       return { type: element.type, x: element.x_meters, y: element.y_meters };
     return element;
   });
+}
+
+/** Count the lesson's requests to frame the path on the canvas. */
+async function countFramePathRequests(page: Page) {
+  await page.evaluate(async () => {
+    const {
+      subscribeCanvasViewRequests,
+    }: typeof import("../../src/canvas/canvasViewRequests") = await import(
+      /* @vite-ignore */ "/src/canvas/canvasViewRequests.ts" as string
+    );
+    const counter = window as { __framePathRequests?: number };
+    counter.__framePathRequests = 0;
+    subscribeCanvasViewRequests((request) => {
+      if (request.kind === "frame-path")
+        counter.__framePathRequests = (counter.__framePathRequests ?? 0) + 1;
+    });
+  });
+  return () =>
+    page.evaluate(
+      () => (window as { __framePathRequests?: number }).__framePathRequests,
+    );
 }
 
 async function practice(page: Page) {

@@ -1,4 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
+import { softwareRendering } from "./support/software-rendering";
+
+test.use(softwareRendering);
 
 test.describe("app shell visual baselines", () => {
   test.use({

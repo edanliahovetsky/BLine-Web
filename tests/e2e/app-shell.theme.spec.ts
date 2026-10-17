@@ -3,6 +3,9 @@ import {
   gotoSampleEditor,
   openProjectSettings,
 } from "./support/app-shell-shared";
+import { softwareRendering } from "./support/software-rendering";
+
+test.use(softwareRendering);
 
 test.describe("shared theme across dialogs and nested controls", () => {
   test.use({
