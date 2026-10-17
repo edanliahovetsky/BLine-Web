@@ -13,7 +13,6 @@ import {
   projectStore,
 } from "../../state/projectStore";
 import { autoVelocityStore } from "../../state/autoVelocityStore";
-import { selectionStore } from "../../state/selectionStore";
 import {
   eventPosHint,
   feedback,
@@ -25,6 +24,7 @@ import { createEventLessonPath } from "./courseScenarios";
 import { observedTourCondition } from "./tourInteraction";
 import { waypoint, translation } from "./tourScenario";
 import { tourStore, type TourDefinition, type TourStep } from "./tourStore";
+import { showProperties } from "./tourShowMe";
 
 const settings = (step: TourStep): TourStep => ({
   autoGenerate: false,
@@ -106,10 +106,6 @@ const canvas = (step: TourStep): TourStep => ({
   prepare: { inspector: "closed", tool: "select", simulation: "start" },
   ...step,
 });
-const openInspector = {
-  target: "inspector-toggle",
-  done: () => shown('[data-tour="inspector-toggle"][aria-expanded="true"]'),
-};
 const currentPath = () =>
   activePathForProjectStore(projectStore.getState())?.path;
 /** Element indexes bounding stretch 1 (Start to the bend) or 2 (bend to End). */
@@ -144,17 +140,6 @@ function addEvent(key: string, segment: 1 | 2, ratio: number): TourStep {
       : "the translation target and End";
   const eventIndex = (path: PathModel) =>
     stretchEvents(segment, path).at(-1)?.index ?? null;
-  const selectEvent = {
-    target: "lesson-element",
-    done: () => {
-      const path = currentPath();
-      const index = path ? eventIndex(path) : null;
-      return (
-        index !== null &&
-        selectionStore.getState().selectedElementIndex === index
-      );
-    },
-  };
   const eventCount = () =>
     currentPath()?.path_elements.filter(isEventTrigger).length ?? 0;
   const posHint = eventPosHint();
@@ -204,7 +189,7 @@ function addEvent(key: string, segment: 1 | 2, ratio: number): TourStep {
       },
       {
         label: `Lib Key \`${key}\``,
-        showMe: [openInspector, selectEvent, "lesson-lib-key"],
+        showMe: [...showProperties(eventIndex), "lesson-lib-key"],
         check: () => {
           const keys = stretchEvents(segment)
             .map(({ element }) => element.lib_key.trim())
@@ -225,7 +210,7 @@ function addEvent(key: string, segment: 1 | 2, ratio: number): TourStep {
       },
       {
         label: `Event Pos ${ratio}`,
-        showMe: [openInspector, selectEvent, "lesson-event-pos"],
+        showMe: [...showProperties(eventIndex), "lesson-event-pos"],
         check: () => {
           const placed = stretchEvents(segment).at(-1);
           return feedback(

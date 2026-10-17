@@ -41,7 +41,7 @@ import {
   createManagementTargets,
 } from "./supplementalScenarios";
 import { observedTourCondition } from "./tourInteraction";
-import { constraintCell, radiusCell } from "./tourShowMe";
+import { constraintCell, radiusCell, showProperties } from "./tourShowMe";
 import {
   createEventLessonPath,
   createFastRotationPath,
@@ -135,22 +135,12 @@ const secondSegmentEvents = (path: PathModel) => {
     : [];
 };
 /** The event the learner adds after the translation target. */
-const secondSegmentEventIndex = (path: PathModel | null) => {
+const secondSegmentEventIndex = (path: PathModel | null): number | null => {
   const segment = path ? secondSegment(path) : null;
   if (!path || !segment) return null;
   for (let index = segment[1] - 1; index > segment[0]; index -= 1)
     if (isEventTrigger(path.path_elements[index])) return index;
   return null;
-};
-/** Show me's first stop when another element's properties are showing. */
-const selectSecondSegmentEvent = {
-  target: "lesson-element",
-  done: () => {
-    const index = secondSegmentEventIndex(currentPath());
-    return (
-      index !== null && selectionStore.getState().selectedElementIndex === index
-    );
-  },
 };
 const properties = (
   selectElement: TourStepPreparation["selectElement"],
@@ -282,10 +272,6 @@ const chooseTool = (tool: string) => ({
   target: `tool-${tool}`,
   done: () => shown(`[data-tour="tool-${tool}"][aria-pressed="true"]`),
 });
-const openInspector = {
-  target: "inspector-toggle",
-  done: () => shown('[data-tour="inspector-toggle"][aria-expanded="true"]'),
-};
 const stopIntakePosHint = eventPosHint();
 const indexOrNull = (index: number) => (index >= 0 ? index : null);
 
@@ -492,7 +478,10 @@ export const fundamentalsTour: TourDefinition = {
       checks: [
         {
           label: "Rotation changed",
-          showMe: [{ target: "label:Rotation (deg)", echo: "lesson-element" }],
+          showMe: [
+            ...showProperties(endpoint),
+            { target: "label:Rotation (deg)", echo: "lesson-element" },
+          ],
           check: outcome((path) => feedback(headingChanged(path), "", "")),
         },
         played,
@@ -887,7 +876,10 @@ export const rotationTargetsTour: TourDefinition = {
       checks: [
         {
           label: "Rotation changed",
-          showMe: [{ target: "label:Rotation (deg)", echo: "lesson-element" }],
+          showMe: [
+            ...showProperties((path) => indexOrNull(rotation(path))),
+            { target: "label:Rotation (deg)", echo: "lesson-element" },
+          ],
           check: outcome((path) => feedback(rotationChanged(path), "", "")),
         },
         played,
@@ -896,6 +888,7 @@ export const rotationTargetsTour: TourDefinition = {
     {
       title: "Try Profiled Rotation",
       task: "Turn Profiled Rotation off, then press Play",
+      element: (path) => indexOrNull(rotation(path)),
       body: "On: the turn spreads along the path. Off: a full-speed turn.",
       target: "element-properties",
       visible: ["path-canvas", "simulation-transport"],
@@ -905,7 +898,10 @@ export const rotationTargetsTour: TourDefinition = {
       checks: [
         {
           label: "Profiled Rotation off",
-          showMe: ["label:Profiled Rotation"],
+          showMe: [
+            ...showProperties((path) => indexOrNull(rotation(path))),
+            "label:Profiled Rotation",
+          ],
           check: outcome((path) =>
             feedback(
               path.path_elements.some(
@@ -1055,7 +1051,10 @@ export const eventTriggersTour: TourDefinition = {
         },
         {
           label: "Lib Key `stopIntake`",
-          showMe: [openInspector, selectSecondSegmentEvent, "lesson-lib-key"],
+          showMe: [
+            ...showProperties(secondSegmentEventIndex),
+            "lesson-lib-key",
+          ],
           check: outcome((path) => {
             const keys = secondSegmentEvents(path)
               .map((event) => event.lib_key.trim())
@@ -1076,7 +1075,10 @@ export const eventTriggersTour: TourDefinition = {
         },
         {
           label: "Event Pos 0.6",
-          showMe: [openInspector, selectSecondSegmentEvent, "lesson-event-pos"],
+          showMe: [
+            ...showProperties(secondSegmentEventIndex),
+            "lesson-event-pos",
+          ],
           check: outcome((path) =>
             feedback(
               secondSegmentEvents(path).some(

@@ -30,7 +30,7 @@ import {
 } from "./supplementalScenarios";
 import { tourStore, type TourDefinition, type TourStep } from "./tourStore";
 import { observedTourCondition } from "./tourInteraction";
-import { constraintCell, radiusCell } from "./tourShowMe";
+import { constraintCell, radiusCell, showProperties } from "./tourShowMe";
 
 interface SupplementalTour extends TourDefinition {
   practiceGroups?(): ProjectPathGroup[];
@@ -368,6 +368,14 @@ function scoreEditHint() {
       ? "Now move it too."
       : "";
 }
+/** The waypoint linked to Score in whichever path is open. */
+const scoreIndex = (path: PathModel) => {
+  const id = scoreTarget()?.target_id;
+  const index = path.path_elements.findIndex(
+    (element) => !!id && getPathElementLinkedTargetId(element) === id,
+  );
+  return index >= 0 ? index : null;
+};
 const linkMenu = {
   target: "element-link",
   done: () =>
@@ -470,7 +478,11 @@ const linkedElementSteps: TourStep[] = [
     target: "element-properties",
     visible: ["path-canvas"],
     interact: linkedEditing,
-    showMe: [{ target: "label:Rotation (deg)", echo: "label:X (m)" }],
+    element: scoreIndex,
+    showMe: [
+      ...showProperties(scoreIndex),
+      { target: "label:Rotation (deg)", echo: "label:X (m)" },
+    ],
     prepare: {
       inspector: "open",
       inspectorTab: "elements",

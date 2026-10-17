@@ -14,6 +14,7 @@ import {
 } from "./supplementalScenarios";
 import { practiceConfig } from "./tourScenario";
 import { currentPracticeTransferError } from "./tourTransfer";
+import { showProperties } from "./tourShowMe";
 import { tourStore, type TourDefinition, type TourStep } from "./tourStore";
 
 const fileMenus = [
@@ -167,7 +168,11 @@ function desktopSteps(): TourStep[] {
       target: "element-properties",
       visible: ["path-canvas"],
       interact: ["inspector-panel", "element-properties", "path-canvas"],
-      showMe: [{ target: "label:X (m)" }],
+      element: (path) => path.path_elements.length - 1,
+      showMe: [
+        ...showProperties((path) => path.path_elements.length - 1),
+        "label:X (m)",
+      ],
       prepare: {
         inspector: "open",
         inspectorTab: "elements",

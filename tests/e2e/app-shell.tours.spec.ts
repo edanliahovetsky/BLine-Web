@@ -1506,6 +1506,31 @@ test("Show me keeps open menus and walks multi-part steps", async ({
   await value.fill("1.2");
   await value.press("Enter");
   await expect(advanceButton(page)).toBeVisible();
+  // A property field off screen: select the element first, then the field.
+  await jump("rotation-targets", 0);
+  await place(page, "Rotation", 10, 4.5);
+  await page.evaluate(async () => {
+    const { tourStore }: typeof import("../../src/ui/tours/tourStore") =
+      await import(/* @vite-ignore */ "/src/ui/tours/tourStore.ts" as string);
+    tourStore.getState().next(6);
+    tourStore.getState().next(6);
+  });
+  await heading(page, "Try a rotation in motion");
+  await page.evaluate(async () => {
+    const { selectionStore }: typeof import("../../src/state/selectionStore") =
+      await import(/* @vite-ignore */ "/src/state/selectionStore.ts" as string);
+    selectionStore.getState().clearSelection();
+  });
+  await expect(page.getByLabel("Rotation (deg)", { exact: true })).toHaveCount(
+    0,
+  );
+  await page.getByTestId("tour-show-me").click();
+  await expect(spotlight).toHaveAttribute("data-show-me", "lesson-element");
+  await page.getByTestId("path-element-row-1").click();
+  await expect(spotlight).toHaveAttribute(
+    "data-show-me",
+    "label:Rotation (deg)",
+  );
 });
 
 test("Space after a finished lesson plays the path, not the next lesson", async ({

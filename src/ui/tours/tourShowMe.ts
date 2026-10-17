@@ -1,3 +1,8 @@
+import type { PathModel } from "../../core/model/path";
+import {
+  activePathForProjectStore,
+  projectStore,
+} from "../../state/projectStore";
 import { selectionStore } from "../../state/selectionStore";
 import type { TourFeedback, TourPointer, TourStep } from "./tourStore";
 
@@ -169,4 +174,39 @@ export function constraintCell(
       );
     },
   };
+}
+
+const shownNow = (selector: string) => !!document.querySelector(selector);
+
+/**
+ * Stops that bring an element's properties on screen: open the sidebar, show
+ * Elements, then select the element on the canvas (the step's
+ * `lesson-element` cue). Put them before a stop at a property field.
+ */
+export function showProperties(
+  index: (path: PathModel) => number | null,
+): TourPointer[] {
+  return [
+    {
+      target: "inspector-toggle",
+      done: () =>
+        shownNow('[data-tour="inspector-toggle"][aria-expanded="true"]'),
+    },
+    {
+      target: "inspector-elements",
+      done: () =>
+        shownNow('[data-tour="inspector-elements"][aria-selected="true"]'),
+    },
+    {
+      target: "lesson-element",
+      done: () => {
+        const path = activePathForProjectStore(projectStore.getState())?.path;
+        const wanted = path ? index(path) : null;
+        return (
+          wanted !== null &&
+          selectionStore.getState().selectedElementIndex === wanted
+        );
+      },
+    },
+  ];
 }
