@@ -204,8 +204,6 @@ function focusEventKeyField() {
   if (input && (!step || tourAllowsTarget(step, input))) input.focus();
 }
 
-const inspectorDrawerMediaQuery = "(max-width: 1120px)";
-
 export function AppShell() {
   const durableProject = useStoreSelector(
     projectStore,
@@ -351,8 +349,10 @@ export function AppShell() {
   const autoGenerationAllowed = activeTourStep?.autoGenerate !== false;
   const [tourSimulationSeekRequest, setTourSimulationSeekRequest] =
     useState<SimulationSeekRequest | null>(null);
+  // The inspector docks beside the canvas at every width; only a phone-sized
+  // screen starts with it closed so the canvas has room.
   const [inspectorOpen, setInspectorOpen] = useState(
-    () => typeof window === "undefined" || window.innerWidth > 1120,
+    () => typeof window === "undefined" || window.innerWidth > 640,
   );
   const [inspectorWidth, setInspectorWidth] = useState(
     () => readEditorUiPreferences().inspectorWidth,
@@ -369,24 +369,7 @@ export function AppShell() {
     showConfigDialog && !settingsWalkthrough && !activeTourId;
   const inspectorVisible =
     inspectorOpen && !navigatorOpen && !settingsPanelOpen;
-  // Below 1120px the inspector is a drawer over the canvas (AppShell.css), so
-  // the canvas frames the path in the part the drawer leaves uncovered.
-  const [inspectorOverlays, setInspectorOverlays] = useState(
-    () =>
-      typeof window !== "undefined" &&
-      !!window.matchMedia?.(inspectorDrawerMediaQuery).matches,
-  );
-  useEffect(() => {
-    const query = window.matchMedia?.(inspectorDrawerMediaQuery);
-    if (!query) return;
-    const sync = () => setInspectorOverlays(query.matches);
-    query.addEventListener("change", sync);
-    return () => query.removeEventListener("change", sync);
-  }, []);
-  const canvasCoveredRight =
-    inspectorVisible && inspectorOverlays
-      ? Math.min(380, Math.max(0, workspaceWidth - 44))
-      : 0;
+
   const [settingsPreview, setSettingsPreview] =
     useState<SettingsDraftPreview | null>(null);
   const navigatorWidthMax = Math.min(
@@ -439,6 +422,7 @@ export function AppShell() {
   } | null>(null);
   const tourSessionRef = useRef<TourSessionController | null>(null);
   const lessonFramedViewRef = useRef(false);
+  const lessonFrameTimerRef = useRef<number | undefined>(undefined);
   const configSaveInProgressRef = useRef(false);
   useEffect(() => {
     const workspace = workspaceRef.current;
@@ -639,6 +623,7 @@ export function AppShell() {
         setActiveTool("select");
       },
       restoreView: (view) => {
+        window.clearTimeout(lessonFrameTimerRef.current);
         // A lesson that zoomed to its practice path hands back the full field.
         if (lessonFramedViewRef.current) {
           lessonFramedViewRef.current = false;
@@ -2847,7 +2832,6 @@ export function AppShell() {
                 controlsRef={pathStageControlsRef}
                 previewConfig={settingsPreview?.config ?? null}
                 curveTool={curveToolSession}
-                coveredRight={canvasCoveredRight}
                 simulationSeekRequest={
                   activeTourId ? tourSimulationSeekRequest : null
                 }
@@ -2874,16 +2858,6 @@ export function AppShell() {
               ) : null}
             </section>
 
-            {/* In a lesson the canvas stays usable beside the drawer: steps
-                need both, and the sidebar button still closes it. */}
-            {inspectorVisible && !activeTourId ? (
-              <button
-                type="button"
-                className="inspector-backdrop is-open"
-                aria-label="Dismiss inspector"
-                onClick={() => setInspectorOpen(false)}
-              />
-            ) : null}
             <Sidebar
               key={projectSessionId ?? "no-project-session"}
               project={durableProject}
@@ -3262,8 +3236,12 @@ export function AppShell() {
             const view = { kind: preparation.view } as const;
             requestCanvasView(view);
             // A lesson's first step can prepare before the practice canvas
-            // mounts or while the workspace resize glides; frame once more.
-            window.setTimeout(() => requestCanvasView(view), 400);
+            // mounts or while the workspace resize glides; frame once more,
+            // unless the lesson has ended and handed the view back.
+            window.clearTimeout(lessonFrameTimerRef.current);
+            lessonFrameTimerRef.current = window.setTimeout(() => {
+              if (tourStore.getState().activeTourId) requestCanvasView(view);
+            }, 400);
           }
         }}
       />

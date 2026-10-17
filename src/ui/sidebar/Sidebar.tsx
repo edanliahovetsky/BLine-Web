@@ -397,7 +397,7 @@ export function Sidebar({
   };
 
   const handleResizeStart = (event: MouseEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || window.innerWidth <= 1120) {
+    if (event.button !== 0 || window.innerWidth <= 640) {
       return;
     }
 

@@ -13,6 +13,7 @@ import type {
 } from "../../state/selectionStore";
 import { selectionStore } from "../../state/selectionStore";
 import { findTour, tourPracticePathName } from "./tours";
+import type { PathModel } from "../../core/model/path";
 import { tourStore, type TourDefinition, type TourState } from "./tourStore";
 import { readLessonResume, rememberLessonResume } from "./lessonResume";
 import type { ProjectConfig } from "../../core/model/project";
@@ -55,6 +56,21 @@ let nextTourSessionId = 1;
  * swaps in one isolated in-memory session, then restores the captured editor
  * state when the Tour store leaves its active state.
  */
+/**
+ * The practice path a step begins from: the nearest seed at or before it, or
+ * the lesson's own. Lessons with several practice paths have no single one.
+ */
+function startingPathFor(
+  definition: TourDefinition,
+  stepIndex: number,
+): (() => PathModel) | undefined {
+  for (let index = stepIndex; index >= 0; index -= 1) {
+    const seed = definition.steps[index]?.prepare?.practicePath;
+    if (seed) return seed;
+  }
+  return definition.practicePaths ? undefined : definition.practicePath;
+}
+
 export function createTourSessionController<View>(
   options: TourSessionControllerOptions<View>,
 ): TourSessionController {
@@ -315,9 +331,17 @@ export function createTourSessionController<View>(
             if (previousState.activeTourId && departing)
               visitedStates.set(previousState.stepIndex, departing);
             const visited = visitedStates.get(nextState.stepIndex);
+            // Going back to a step not seen since resuming: rebuild the path
+            // it started from, not the later step's work.
+            const backwards =
+              !!previousState.activeTourId &&
+              nextState.stepIndex < previousState.stepIndex;
             const seed = keepResumedStep
               ? undefined
-              : definition.steps[nextState.stepIndex]?.prepare?.practicePath;
+              : (definition.steps[nextState.stepIndex]?.prepare?.practicePath ??
+                (backwards
+                  ? startingPathFor(definition, nextState.stepIndex)
+                  : undefined));
             keepResumedStep = false;
             if (visited) {
               loadSnapshot(visited);

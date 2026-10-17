@@ -26,7 +26,7 @@ describe("lesson lint", () => {
     const saves = lessons.flatMap((lesson) =>
       lesson.steps.flatMap((step, index) =>
         step.settingsSection &&
-        [step.body, step.task ?? ""].some((text) =>
+        [step.body ?? "", step.task ?? ""].some((text) =>
           /\bsave settings\b|\band save\b/i.test(text),
         )
           ? [`${lesson.id} step ${index + 1}`]

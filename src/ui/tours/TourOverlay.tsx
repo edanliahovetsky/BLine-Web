@@ -314,27 +314,7 @@ export function TourOverlay({
   useEffect(() => {
     const measureTour = (id: string): TourRect | null => {
       const element = findTourTarget(id);
-      if (!element) return null;
-      // A canvas cue under the inspector drawer has nothing to point at.
-      if (element.closest('[data-tour="path-canvas"]')) {
-        const drawer = document
-          .querySelector(".inspector-sidebar.is-open")
-          ?.getBoundingClientRect();
-        const box = element.getBoundingClientRect();
-        const x = box.left + box.width / 2;
-        const y = box.top + box.height / 2;
-        if (
-          drawer &&
-          getComputedStyle(document.querySelector(".inspector-sidebar")!)
-            .position === "absolute" &&
-          x >= drawer.left &&
-          x <= drawer.right &&
-          y >= drawer.top &&
-          y <= drawer.bottom
-        )
-          return null;
-      }
-      return visibleTourRect(element);
+      return element ? visibleTourRect(element) : null;
     };
 
     const measureTargets = (token: string) =>

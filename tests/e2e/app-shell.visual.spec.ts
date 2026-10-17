@@ -94,27 +94,22 @@ test.describe("app shell visual baselines", () => {
     await expectVisualSnapshot(page, "project-navigator.png");
   });
 
-  test("compact inspector at drawer breakpoint", async ({ page }) => {
-    await page.setViewportSize({ width: 1121, height: 800 });
+  test("compact inspector docks beside the canvas", async ({ page }) => {
+    await page.setViewportSize({ width: 1120, height: 800 });
     await gotoSampleEditor(page);
 
     const inspector = page.getByRole("complementary", {
       name: "Path inspector",
     });
-    await expect(inspector).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Close inspector" }),
-    ).toHaveCount(0);
-
-    await page.setViewportSize({ width: 1120, height: 800 });
-
     await expect(inspector).toHaveClass(/is-open/);
-    await expect(
-      page.getByRole("button", { name: "Close inspector" }),
-    ).toHaveCount(0);
+    // No drawer over the canvas: nothing to dismiss, and the canvas ends
+    // where the inspector begins.
     await expect(
       page.getByRole("button", { name: "Dismiss inspector" }),
-    ).toBeVisible();
+    ).toHaveCount(0);
+    const canvas = await page.getByTestId("path-stage").boundingBox();
+    const panel = await inspector.boundingBox();
+    expect(canvas!.x + canvas!.width).toBeLessThanOrEqual(panel!.x + 1);
 
     await expectVisualSnapshot(page, "compact-inspector.png");
   });

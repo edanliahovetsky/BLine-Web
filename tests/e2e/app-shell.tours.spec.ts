@@ -1525,7 +1525,11 @@ test("Show me keeps open menus and walks multi-part steps", async ({
     0,
   );
   await page.getByTestId("tour-show-me").click();
-  await expect(spotlight).toHaveAttribute("data-show-me", "lesson-element");
+  // It points at the element's sidebar row, visible wherever the element is.
+  await expect(spotlight).toHaveAttribute(
+    "data-show-me",
+    "testid:path-element-row-1",
+  );
   await page.getByTestId("path-element-row-1").click();
   await expect(spotlight).toHaveAttribute(
     "data-show-me",
@@ -1533,14 +1537,16 @@ test("Show me keeps open menus and walks multi-part steps", async ({
   );
 });
 
-test("frames the lesson path beside the inspector drawer and keeps the canvas usable", async ({
+test("docks the sidebar beside the canvas in a narrow window", async ({
   page,
 }) => {
-  // Below 1120px the inspector is a drawer over the canvas.
+  // No drawer over the canvas at any width: the sidebar takes its own column.
   await page.setViewportSize({ width: 1028, height: 794 });
   await page.goto("/?lesson=rotation-targets");
   await heading(page, "Add a rotation target");
-  const drawer = await requiredBox(page.locator(".inspector-sidebar.is-open"));
+  const canvas = await requiredBox(page.locator('[data-tour="path-canvas"]'));
+  const sidebar = await requiredBox(page.locator(".inspector-sidebar"));
+  expect(canvas.x + canvas.width).toBeLessThanOrEqual(sidebar.x + 1);
   await expect
     .poll(() =>
       page
@@ -1551,11 +1557,7 @@ test("frames the lesson path beside the inspector drawer and keeps the canvas us
           return x + width;
         }),
     )
-    .toBeLessThan(drawer.x);
-  // The drawer's dismiss backdrop doesn’t swallow lesson clicks on the canvas.
-  await expect(
-    page.getByRole("button", { name: "Dismiss inspector" }),
-  ).toHaveCount(0);
+    .toBeLessThan(canvas.width);
   await page
     .getByRole("button", { name: "Rotation tool", exact: true })
     .click();
@@ -1567,6 +1569,35 @@ test("frames the lesson path beside the inspector drawer and keeps the canvas us
     segment.y + segment.height / 2,
   );
   await expect(advanceButton(page)).toBeVisible();
+});
+
+test("going back after resuming a lesson restores that step's path", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoSampleEditor(page);
+  await openLesson(page, "BLine Fundamentals");
+  await heading(page, "See a complete path");
+  expect((await practice(page)).path.path_elements).toHaveLength(6);
+  await page.evaluate(async () => {
+    const { tourStore }: typeof import("../../src/ui/tours/tourStore") =
+      await import(/* @vite-ignore */ "/src/ui/tours/tourStore.ts" as string);
+    tourStore.getState().next(6);
+  });
+  await heading(page, "Place Start and End");
+  await exitLesson(page);
+  await page.getByRole("button", { name: "Help and tutorials" }).click();
+  await page.getByTestId("start-guided-tour").click();
+  await page.getByTestId("tour-picker-resume").click();
+  await heading(page, "Place Start and End");
+  expect((await practice(page)).path.path_elements).toHaveLength(0);
+  await page
+    .getByTestId("tour-card")
+    .getByRole("button", { name: "Back", exact: true })
+    .click();
+  // The finished example to play is back, not the emptied later step.
+  await heading(page, "See a complete path");
+  expect((await practice(page)).path.path_elements).toHaveLength(6);
 });
 
 test("Space after a finished lesson plays the path, not the next lesson", async ({
