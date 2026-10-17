@@ -87,159 +87,167 @@ test("closes its User Data connection when a newer database version is requested
   ).resolves.toBe(3);
 });
 
-test("starts new users in a focused start center", async ({ page }) => {
-  await page.goto("/");
+test(
+  "starts new users in a focused start center",
+  { tag: "@smoke" },
+  async ({ page }) => {
+    await page.goto("/");
 
-  await expect(page.getByTestId("app-shell")).toBeVisible();
-  await expect(page.getByTestId("mobile-support-warning")).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "BLine" })).toBeVisible();
-  await expect(
-    page.getByRole("button", {
-      name: "Create project",
-      exact: true,
-    }),
-  ).toBeVisible();
-  await expect(page.getByRole("button", { name: "Sample path" })).toBeVisible();
+    await expect(page.getByTestId("app-shell")).toBeVisible();
+    await expect(page.getByTestId("mobile-support-warning")).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "BLine" })).toBeVisible();
+    await expect(
+      page.getByRole("button", {
+        name: "Create project",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Sample path" }),
+    ).toBeVisible();
 
-  await page.getByRole("button", { name: "Sample path" }).click();
+    await page.getByRole("button", { name: "Sample path" }).click();
 
-  await expect(
-    page.getByRole("navigation", { name: "Top menu" }),
-  ).toBeVisible();
-  await expect(page.getByLabel("Editor canvas")).toBeVisible();
-  await expect(page.getByTestId("path-stage")).toBeVisible();
-  await expect(page.getByText("Current Path: Sample Path")).toBeVisible();
-  await expect(page.getByTestId("current-project-status")).toHaveText(
-    "Project: Sample Project",
-  );
-  await expect(
-    page.getByRole("region", { name: "Path Elements", exact: true }),
-  ).toBeVisible();
-  await expect(page.getByTestId("path-element-row-0")).toContainText(
-    "1. Waypoint",
-  );
-  await expect(page.getByTestId("path-element-row-0")).toContainText(
-    "5.70, 2.50 m",
-  );
-  await expect(page.getByTestId("path-element-row-5")).toContainText(
-    "6. Waypoint",
-  );
-  await expect(page.getByTestId("path-element-row-5")).toContainText(
-    "10.90, 5.50 m",
-  );
-  await expect(page.getByRole("button", { name: "Zoom in" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Fit view" })).toBeVisible();
-  await expect(
-    page.getByRole("complementary", { name: "Canvas tools" }),
-  ).toBeVisible();
-  const selectTool = page.getByRole("button", { name: "Select tool" });
-  const waypointTool = page.getByRole("button", { name: "Waypoint tool" });
-  const translationTool = page.getByRole("button", {
-    name: "Translation tool",
-  });
-  await expect(selectTool).toHaveAttribute("aria-pressed", "true");
-  await waypointTool.click();
-  await expect(waypointTool).toHaveAttribute("aria-pressed", "true");
-  await translationTool.click();
-  await expect(translationTool).toHaveAttribute("aria-pressed", "true");
-  await selectTool.click();
-  await expect(selectTool).toHaveAttribute("aria-pressed", "true");
-
-  const fitView = page.getByRole("button", { name: "Fit view" });
-  await expect(fitView).toContainText("100%");
-  await page.getByRole("button", { name: "Zoom in" }).click();
-  await expect(fitView).toContainText("125%");
-  await page.getByRole("button", { name: "Zoom out" }).click();
-  await expect(fitView).toContainText("100%");
-  const pathStage = page.getByTestId("path-stage");
-  await pathStage.press("=");
-  await expect(fitView).toContainText("125%");
-  await pathStage.press("0");
-  await expect(fitView).toContainText("100%");
-  const interfaceZoomModifier =
-    process.platform === "darwin" ? "Meta" : "Control";
-  await pathStage.press(`${interfaceZoomModifier}+=`);
-  await expect(fitView).toContainText("100%");
-  await pathStage.press(`${interfaceZoomModifier}+0`);
-
-  const hideLabelOverlays = page.getByRole("button", {
-    name: "Hide Path Group overlays",
-  });
-  await expect(hideLabelOverlays).toHaveAttribute("aria-pressed", "true");
-  await hideLabelOverlays.click();
-  const showLabelOverlays = page.getByRole("button", {
-    name: "Show Path Group overlays",
-  });
-  await expect(showLabelOverlays).toHaveAttribute("aria-pressed", "false");
-  await showLabelOverlays.click();
-  await expect(
-    page.getByRole("button", { name: "Hide Path Group overlays" }),
-  ).toHaveAttribute("aria-pressed", "true");
-
-  await page.getByRole("tab", { name: "Constraints", exact: true }).click();
-  const pathConstraintsCard = page.getByRole("article", {
-    name: "Path constraints",
-  });
-  await expect(pathConstraintsCard).toBeVisible();
-  await expect(pathConstraintsCard).not.toContainText("Path Constraints");
-  await expect(page.getByText("Constraints", { exact: true })).toHaveCount(1);
-  const addConstraint = page.getByRole("button", { name: "Add constraint" });
-  const addConstraintSurface = page.getByTestId("constraint-add-surface");
-  await expect(addConstraint).toBeVisible();
-  await expect(addConstraint).toHaveText("");
-  await expect(
-    page.locator(".constraint-list > .constraint-add-surface"),
-  ).toHaveCount(1);
-  expect(
-    await addConstraint.evaluate(
-      (button) =>
-        button.parentElement?.parentElement ===
-        button.parentElement?.parentElement?.parentElement?.lastElementChild,
-    ),
-  ).toBe(true);
-  const optimizerBox = await requiredBox(pathConstraintsCard);
-  const addSurfaceBox = await requiredBox(addConstraintSurface);
-  expect(addSurfaceBox.y).toBeGreaterThan(optimizerBox.y + optimizerBox.height);
-  expect(Math.abs(addSurfaceBox.width - optimizerBox.width)).toBeLessThan(2);
-  const velocityRanges = page.locator(
-    '[data-testid^="constraint-range-max_velocity_meters_per_sec-"]',
-  );
-  expect(await velocityRanges.count()).toBeGreaterThan(0);
-  for (const range of await velocityRanges.all()) {
-    await expect(range).toHaveClass(/ranged-segment-range--auto/);
-  }
-  for (const index of [0, 1, 3]) {
-    await expect(page.getByTestId(`handoff-radius-chip-${index}`)).toHaveClass(
-      /handoff-radius-chip--auto/,
+    await expect(
+      page.getByRole("navigation", { name: "Top menu" }),
+    ).toBeVisible();
+    await expect(page.getByLabel("Editor canvas")).toBeVisible();
+    await expect(page.getByTestId("path-stage")).toBeVisible();
+    await expect(page.getByText("Current Path: Sample Path")).toBeVisible();
+    await expect(page.getByTestId("current-project-status")).toHaveText(
+      "Project: Sample Project",
     );
-  }
-  await expect(pathConstraintsCard.getByRole("status")).toHaveText(
-    "Up to date",
-  );
-  await expect(page.getByTestId("sidebar-selection-context")).toHaveCount(0);
-  await expect(page.getByText("Element Properties")).toHaveCount(0);
-  await expect(page.getByText("Generated constraints ready")).toHaveCount(0);
-  const generatedSpeeds = await velocityRanges.allTextContents();
-  const radiusChips = page.locator('[data-testid^="handoff-radius-chip-"]');
-  const generatedRadii = await radiusChips.allTextContents();
-  await expect(page.getByTestId("save-status")).toContainText("Saved");
-  const sampleState = () =>
-    page.evaluate(async () => {
-      const storePath = "/src/state/projectStore.ts";
-      const { projectStore } = await import(/* @vite-ignore */ storePath);
-      const project = projectStore.getState().project;
-      return { config: project.config, path: project.paths[0].path };
+    await expect(
+      page.getByRole("region", { name: "Path Elements", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByTestId("path-element-row-0")).toContainText(
+      "1. Waypoint",
+    );
+    await expect(page.getByTestId("path-element-row-0")).toContainText(
+      "5.70, 2.50 m",
+    );
+    await expect(page.getByTestId("path-element-row-5")).toContainText(
+      "6. Waypoint",
+    );
+    await expect(page.getByTestId("path-element-row-5")).toContainText(
+      "10.90, 5.50 m",
+    );
+    await expect(page.getByRole("button", { name: "Zoom in" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Fit view" })).toBeVisible();
+    await expect(
+      page.getByRole("complementary", { name: "Canvas tools" }),
+    ).toBeVisible();
+    const selectTool = page.getByRole("button", { name: "Select tool" });
+    const waypointTool = page.getByRole("button", { name: "Waypoint tool" });
+    const translationTool = page.getByRole("button", {
+      name: "Translation tool",
     });
-  const beforeReload = await sampleState();
-  await page.reload();
-  await page.getByRole("tab", { name: "Constraints", exact: true }).click();
-  expect(await sampleState()).toEqual(beforeReload);
-  await expect(velocityRanges).toHaveText(generatedSpeeds);
-  await expect(radiusChips).toHaveText(generatedRadii);
-  await expect(pathConstraintsCard.getByRole("status")).toHaveText(
-    "Up to date",
-  );
-});
+    await expect(selectTool).toHaveAttribute("aria-pressed", "true");
+    await waypointTool.click();
+    await expect(waypointTool).toHaveAttribute("aria-pressed", "true");
+    await translationTool.click();
+    await expect(translationTool).toHaveAttribute("aria-pressed", "true");
+    await selectTool.click();
+    await expect(selectTool).toHaveAttribute("aria-pressed", "true");
+
+    const fitView = page.getByRole("button", { name: "Fit view" });
+    await expect(fitView).toContainText("100%");
+    await page.getByRole("button", { name: "Zoom in" }).click();
+    await expect(fitView).toContainText("125%");
+    await page.getByRole("button", { name: "Zoom out" }).click();
+    await expect(fitView).toContainText("100%");
+    const pathStage = page.getByTestId("path-stage");
+    await pathStage.press("=");
+    await expect(fitView).toContainText("125%");
+    await pathStage.press("0");
+    await expect(fitView).toContainText("100%");
+    const interfaceZoomModifier =
+      process.platform === "darwin" ? "Meta" : "Control";
+    await pathStage.press(`${interfaceZoomModifier}+=`);
+    await expect(fitView).toContainText("100%");
+    await pathStage.press(`${interfaceZoomModifier}+0`);
+
+    const hideLabelOverlays = page.getByRole("button", {
+      name: "Hide Path Group overlays",
+    });
+    await expect(hideLabelOverlays).toHaveAttribute("aria-pressed", "true");
+    await hideLabelOverlays.click();
+    const showLabelOverlays = page.getByRole("button", {
+      name: "Show Path Group overlays",
+    });
+    await expect(showLabelOverlays).toHaveAttribute("aria-pressed", "false");
+    await showLabelOverlays.click();
+    await expect(
+      page.getByRole("button", { name: "Hide Path Group overlays" }),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    await page.getByRole("tab", { name: "Constraints", exact: true }).click();
+    const pathConstraintsCard = page.getByRole("article", {
+      name: "Path constraints",
+    });
+    await expect(pathConstraintsCard).toBeVisible();
+    await expect(pathConstraintsCard).not.toContainText("Path Constraints");
+    await expect(page.getByText("Constraints", { exact: true })).toHaveCount(1);
+    const addConstraint = page.getByRole("button", { name: "Add constraint" });
+    const addConstraintSurface = page.getByTestId("constraint-add-surface");
+    await expect(addConstraint).toBeVisible();
+    await expect(addConstraint).toHaveText("");
+    await expect(
+      page.locator(".constraint-list > .constraint-add-surface"),
+    ).toHaveCount(1);
+    expect(
+      await addConstraint.evaluate(
+        (button) =>
+          button.parentElement?.parentElement ===
+          button.parentElement?.parentElement?.parentElement?.lastElementChild,
+      ),
+    ).toBe(true);
+    const optimizerBox = await requiredBox(pathConstraintsCard);
+    const addSurfaceBox = await requiredBox(addConstraintSurface);
+    expect(addSurfaceBox.y).toBeGreaterThan(
+      optimizerBox.y + optimizerBox.height,
+    );
+    expect(Math.abs(addSurfaceBox.width - optimizerBox.width)).toBeLessThan(2);
+    const velocityRanges = page.locator(
+      '[data-testid^="constraint-range-max_velocity_meters_per_sec-"]',
+    );
+    expect(await velocityRanges.count()).toBeGreaterThan(0);
+    for (const range of await velocityRanges.all()) {
+      await expect(range).toHaveClass(/ranged-segment-range--auto/);
+    }
+    for (const index of [0, 1, 3]) {
+      await expect(
+        page.getByTestId(`handoff-radius-chip-${index}`),
+      ).toHaveClass(/handoff-radius-chip--auto/);
+    }
+    await expect(pathConstraintsCard.getByRole("status")).toHaveText(
+      "Up to date",
+    );
+    await expect(page.getByTestId("sidebar-selection-context")).toHaveCount(0);
+    await expect(page.getByText("Element Properties")).toHaveCount(0);
+    await expect(page.getByText("Generated constraints ready")).toHaveCount(0);
+    const generatedSpeeds = await velocityRanges.allTextContents();
+    const radiusChips = page.locator('[data-testid^="handoff-radius-chip-"]');
+    const generatedRadii = await radiusChips.allTextContents();
+    await expect(page.getByTestId("save-status")).toContainText("Saved");
+    const sampleState = () =>
+      page.evaluate(async () => {
+        const storePath = "/src/state/projectStore.ts";
+        const { projectStore } = await import(/* @vite-ignore */ storePath);
+        const project = projectStore.getState().project;
+        return { config: project.config, path: project.paths[0].path };
+      });
+    const beforeReload = await sampleState();
+    await page.reload();
+    await page.getByRole("tab", { name: "Constraints", exact: true }).click();
+    expect(await sampleState()).toEqual(beforeReload);
+    await expect(velocityRanges).toHaveText(generatedSpeeds);
+    await expect(radiusChips).toHaveText(generatedRadii);
+    await expect(pathConstraintsCard.getByRole("status")).toHaveText(
+      "Up to date",
+    );
+  },
+);
 
 test("collapses and restores the inspector from the top toolbar", async ({
   page,

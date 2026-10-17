@@ -59,45 +59,49 @@ async function openExportToRobot(page: Page) {
   return dialog;
 }
 
-test("exports to the robot project's deploy autos and remembers the folder", async ({
-  page,
-}) => {
-  await installRobotProjectPicker(page);
-  await gotoSampleEditor(page);
+test(
+  "exports to the robot project's deploy autos and remembers the folder",
+  { tag: "@smoke" },
+  async ({ page }) => {
+    await installRobotProjectPicker(page);
+    await gotoSampleEditor(page);
 
-  let dialog = await openExportToRobot(page);
-  await expect(dialog).toContainText("src/main/deploy/autos");
-  await dialog.getByRole("button", { name: "Choose robot project…" }).click();
-  await expect(dialog.getByRole("status")).toContainText(
-    "Saved 1 path to RobotCode/src/main/deploy/autos",
-  );
-  expect(await robotFileNames(page)).toEqual([
-    expect.stringMatching(/\.json$/),
-  ]);
-  await dialog.getByRole("button", { name: "Done" }).click();
-  await expect(dialog).toHaveCount(0);
+    let dialog = await openExportToRobot(page);
+    await expect(dialog).toContainText("src/main/deploy/autos");
+    await dialog.getByRole("button", { name: "Choose robot project…" }).click();
+    await expect(dialog.getByRole("status")).toContainText(
+      "Saved 1 path to RobotCode/src/main/deploy/autos",
+    );
+    expect(await robotFileNames(page)).toEqual([
+      expect.stringMatching(/\.json$/),
+    ]);
+    await dialog.getByRole("button", { name: "Done" }).click();
+    await expect(dialog).toHaveCount(0);
 
-  // The next export goes straight to the remembered robot project.
-  dialog = await openExportToRobot(page);
-  await expect(dialog).toContainText(
-    "Saves this project’s paths to RobotCode/src/main/deploy/autos",
-  );
-  await dialog.getByRole("button", { name: "Export", exact: true }).click();
-  await expect(dialog.getByRole("status")).toContainText("Saved 1 path");
-  expect(
-    await page.evaluate(() => (window as RobotPickerWindow).__robotPickerCalls),
-  ).toBe(1);
+    // The next export goes straight to the remembered robot project.
+    dialog = await openExportToRobot(page);
+    await expect(dialog).toContainText(
+      "Saves this project’s paths to RobotCode/src/main/deploy/autos",
+    );
+    await dialog.getByRole("button", { name: "Export", exact: true }).click();
+    await expect(dialog.getByRole("status")).toContainText("Saved 1 path");
+    expect(
+      await page.evaluate(
+        () => (window as RobotPickerWindow).__robotPickerCalls,
+      ),
+    ).toBe(1);
 
-  await dialog.getByRole("button", { name: "Done" }).click();
-  await page.keyboard.press("F1");
-  await page
-    .getByRole("searchbox", { name: "Search commands and paths" })
-    .fill("export to robot");
-  await page.keyboard.press("Enter");
-  await expect(
-    page.getByRole("dialog", { name: "Export to robot" }),
-  ).toBeVisible();
-});
+    await dialog.getByRole("button", { name: "Done" }).click();
+    await page.keyboard.press("F1");
+    await page
+      .getByRole("searchbox", { name: "Search commands and paths" })
+      .fill("export to robot");
+    await page.keyboard.press("Enter");
+    await expect(
+      page.getByRole("dialog", { name: "Export to robot" }),
+    ).toBeVisible();
+  },
+);
 
 test("says upfront that browsers without folder access download autos.zip, which imports directly", async ({
   page,

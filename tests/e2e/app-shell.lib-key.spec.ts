@@ -24,77 +24,81 @@ async function placeEvent(page: Page, x_meters: number, y_meters: number) {
 const options = (page: Page) =>
   page.getByRole("listbox", { name: "Registered event triggers" });
 
-test("places an event, returns to Select, and names it from explicit key choices", async ({
-  page,
-}) => {
-  await gotoSampleEditor(page);
-  // The sample's only event uses "intake"; place a second one on segment 1.
-  await placeEvent(page, 6.35, 3.25);
-  await expect(
-    page.getByRole("button", { name: "Select tool", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
-  const key = page.getByLabel("Lib Key", { exact: true });
-  await expect(key).toBeFocused();
-  await expect(key).toHaveCSS("font-family", /monospace/);
-  await expect(
-    page.locator(".path-element-row__detail--key").first(),
-  ).toHaveCSS("font-family", /monospace/);
+test(
+  "places an event, returns to Select, and names it from explicit key choices",
+  { tag: "@smoke" },
+  async ({ page }) => {
+    await gotoSampleEditor(page);
+    // The sample's only event uses "intake"; place a second one on segment 1.
+    await placeEvent(page, 6.35, 3.25);
+    await expect(
+      page.getByRole("button", { name: "Select tool", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    const key = page.getByLabel("Lib Key", { exact: true });
+    await expect(key).toBeFocused();
+    await expect(key).toHaveCSS("font-family", /monospace/);
+    await expect(
+      page.locator(".path-element-row__detail--key").first(),
+    ).toHaveCSS("font-family", /monospace/);
 
-  // Suggestions open on focus, with how often each key is used.
-  await expect(
-    options(page).getByRole("option", { name: "intake", exact: true }),
-  ).toHaveAccessibleDescription("used 1×");
-  await expect(options(page).getByRole("option")).toHaveText(["intakeused 1×"]);
+    // Suggestions open on focus, with how often each key is used.
+    await expect(
+      options(page).getByRole("option", { name: "intake", exact: true }),
+    ).toHaveAccessibleDescription("used 1×");
+    await expect(options(page).getByRole("option")).toHaveText([
+      "intakeused 1×",
+    ]);
 
-  // A unique prefix completes on Tab, whatever its case.
-  await key.pressSequentially("INT");
-  await key.press("Tab");
-  await expect(key).toHaveValue("intake");
+    // A unique prefix completes on Tab, whatever its case.
+    await key.pressSequentially("INT");
+    await key.press("Tab");
+    await expect(key).toHaveValue("intake");
 
-  // A capitalization variant is never offered for registration.
-  await key.fill("Intake");
-  await expect(page.getByText("Did you mean intake?")).toBeVisible();
-  await expect(options(page)).not.toContainText("Register new key");
-  await page.getByRole("button", { name: "Use it", exact: true }).click();
-  await expect(key).toHaveValue("intake");
-  await expect(page.getByText("Did you mean intake?")).toHaveCount(0);
+    // A capitalization variant is never offered for registration.
+    await key.fill("Intake");
+    await expect(page.getByText("Did you mean intake?")).toBeVisible();
+    await expect(options(page)).not.toContainText("Register new key");
+    await page.getByRole("button", { name: "Use it", exact: true }).click();
+    await expect(key).toHaveValue("intake");
+    await expect(page.getByText("Did you mean intake?")).toHaveCount(0);
 
-  // Typing alone does not register; the explicit row does.
-  await key.fill("dribble");
-  await key.blur();
-  expect(await registeredKeys(page)).not.toContain("dribble");
-  await key.fill("shoot");
-  await expect(options(page).getByRole("option")).toHaveText([
-    "Register new key shoot ↵",
-  ]);
-  await expect(
-    options(page).getByRole("option", { name: "Register new key shoot" }),
-  ).toBeVisible();
-  await key.press("Enter");
-  expect(await registeredKeys(page)).toContain("shoot");
-  await key.fill("spit");
-  await options(page)
-    .getByRole("option", { name: "Register new key spit" })
-    .click();
-  expect(await registeredKeys(page)).toEqual(
-    expect.arrayContaining(["shoot", "spit"]),
-  );
+    // Typing alone does not register; the explicit row does.
+    await key.fill("dribble");
+    await key.blur();
+    expect(await registeredKeys(page)).not.toContain("dribble");
+    await key.fill("shoot");
+    await expect(options(page).getByRole("option")).toHaveText([
+      "Register new key shoot ↵",
+    ]);
+    await expect(
+      options(page).getByRole("option", { name: "Register new key shoot" }),
+    ).toBeVisible();
+    await key.press("Enter");
+    expect(await registeredKeys(page)).toContain("shoot");
+    await key.fill("spit");
+    await options(page)
+      .getByRole("option", { name: "Register new key spit" })
+      .click();
+    expect(await registeredKeys(page)).toEqual(
+      expect.arrayContaining(["shoot", "spit"]),
+    );
 
-  // Several matches: Tab cycles instead of taking the first silently.
-  await key.fill("s");
-  await key.press("Tab");
-  await expect(key).toHaveValue("shoot");
-  await expect(key).toBeFocused();
-  await key.press("Tab");
-  await expect(key).toHaveValue("spit");
-  await key.press("Tab");
-  await expect(key).toHaveValue("shoot");
-  await expect(
-    options(page).getByRole("option", { selected: true }),
-  ).toContainText("shoot");
-  await key.press("Enter");
-  await expect(options(page)).toHaveCount(0);
-});
+    // Several matches: Tab cycles instead of taking the first silently.
+    await key.fill("s");
+    await key.press("Tab");
+    await expect(key).toHaveValue("shoot");
+    await expect(key).toBeFocused();
+    await key.press("Tab");
+    await expect(key).toHaveValue("spit");
+    await key.press("Tab");
+    await expect(key).toHaveValue("shoot");
+    await expect(
+      options(page).getByRole("option", { selected: true }),
+    ).toContainText("shoot");
+    await key.press("Enter");
+    await expect(options(page)).toHaveCount(0);
+  },
+);
 
 test("anchors the key list beneath an empty project's first Lib Key without scrolling", async ({
   page,

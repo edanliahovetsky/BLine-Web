@@ -132,50 +132,60 @@ test("selects and deletes a saved path without crashing", async ({ page }) => {
   );
 });
 
-test("creates saves and reloads a local project", async ({ page }) => {
-  await gotoSampleEditor(page);
+test(
+  "creates saves and reloads a local project",
+  { tag: "@smoke" },
+  async ({ page }) => {
+    await gotoSampleEditor(page);
 
-  await createNewProject(page);
-  await page.getByRole("button", { name: "Add element" }).click();
-  await page.getByRole("menuitem", { name: "Waypoint" }).click();
+    await createNewProject(page);
+    await page.getByRole("button", { name: "Add element" }).click();
+    await page.getByRole("menuitem", { name: "Waypoint" }).click();
 
-  await page.getByLabel("X (m)").fill("6.50");
-  await page.getByLabel("Y (m)").fill("3.90");
-  await page.getByRole("button", { name: "Save" }).click();
+    await page.getByLabel("X (m)").fill("6.50");
+    await page.getByLabel("Y (m)").fill("3.90");
+    await page.getByRole("button", { name: "Save" }).click();
 
-  await expect(page.getByTestId("save-status")).toContainText("Saved");
-  const currentPath = await page
-    .getByTestId("current-path-status")
-    .textContent();
+    await expect(page.getByTestId("save-status")).toContainText("Saved");
+    const currentPath = await page
+      .getByTestId("current-path-status")
+      .textContent();
 
-  await page.reload();
+    await page.reload();
 
-  if (!currentPath) {
-    throw new Error("Expected current path status to be populated");
-  }
+    if (!currentPath) {
+      throw new Error("Expected current path status to be populated");
+    }
 
-  await expect(page.getByTestId("current-path-status")).toHaveText(currentPath);
-  await expect(page.getByTestId("path-element-row-0")).toContainText(
-    "6.50, 3.90 m",
-  );
-});
+    await expect(page.getByTestId("current-path-status")).toHaveText(
+      currentPath,
+    );
+    await expect(page.getByTestId("path-element-row-0")).toContainText(
+      "6.50, 3.90 m",
+    );
+  },
+);
 
-test("recovers autosaved edits after reload", async ({ page }) => {
-  await gotoSampleEditor(page);
+test(
+  "recovers autosaved edits after reload",
+  { tag: "@smoke" },
+  async ({ page }) => {
+    await gotoSampleEditor(page);
 
-  await page.getByTestId("path-element-row-1").click();
-  await page.getByLabel("X (m)").fill("7.50");
+    await page.getByTestId("path-element-row-1").click();
+    await page.getByLabel("X (m)").fill("7.50");
 
-  await expect(page.getByTestId("save-status")).toContainText("Saved", {
-    timeout: 5_000,
-  });
+    await expect(page.getByTestId("save-status")).toContainText("Saved", {
+      timeout: 5_000,
+    });
 
-  await page.reload();
+    await page.reload();
 
-  await expect(page.getByTestId("path-element-row-1")).toContainText(
-    "7.50, 4.00 m",
-  );
-});
+    await expect(page.getByTestId("path-element-row-1")).toContainText(
+      "7.50, 4.00 m",
+    );
+  },
+);
 
 test("keeps linked elements after reload", async ({ page }) => {
   await gotoSampleEditor(page);
@@ -596,71 +606,75 @@ test("keeps disabled palette actions inert and restores focus on Escape", async 
   await expect(trigger).toBeFocused();
 });
 
-test("supports common keyboard shortcuts", async ({ page }) => {
-  await gotoSampleEditor(page);
+test(
+  "supports common keyboard shortcuts",
+  { tag: "@smoke" },
+  async ({ page }) => {
+    await gotoSampleEditor(page);
 
-  await expect(
-    page.getByRole("button", { name: "Redo", exact: true }),
-  ).toHaveAttribute("aria-keyshortcuts", /Meta\+Y Control\+Y/);
+    await expect(
+      page.getByRole("button", { name: "Redo", exact: true }),
+    ).toHaveAttribute("aria-keyshortcuts", /Meta\+Y Control\+Y/);
 
-  await page.getByRole("button", { name: "Add element" }).click();
-  await page.getByRole("menuitem", { name: "Event Trigger" }).click();
-  await expect(page.getByTestId("path-element-row-5")).toContainText(
-    "6. Event Trigger",
-  );
+    await page.getByRole("button", { name: "Add element" }).click();
+    await page.getByRole("menuitem", { name: "Event Trigger" }).click();
+    await expect(page.getByTestId("path-element-row-5")).toContainText(
+      "6. Event Trigger",
+    );
 
-  const shortcut = process.platform === "darwin" ? "Meta" : "Control";
-  await page.keyboard.press(`${shortcut}+Z`);
-  await expect(page.getByTestId("path-element-row-5")).toContainText(
-    "6. Waypoint",
-  );
+    const shortcut = process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.press(`${shortcut}+Z`);
+    await expect(page.getByTestId("path-element-row-5")).toContainText(
+      "6. Waypoint",
+    );
 
-  await page.keyboard.press(`${shortcut}+Shift+Z`);
-  await expect(page.getByTestId("path-element-row-5")).toContainText(
-    "6. Event Trigger",
-  );
+    await page.keyboard.press(`${shortcut}+Shift+Z`);
+    await expect(page.getByTestId("path-element-row-5")).toContainText(
+      "6. Event Trigger",
+    );
 
-  await page.keyboard.press(`${shortcut}+Z`);
-  await page.keyboard.press(`${shortcut}+Y`);
-  await expect(page.getByTestId("path-element-row-5")).toContainText(
-    "6. Event Trigger",
-  );
+    await page.keyboard.press(`${shortcut}+Z`);
+    await page.keyboard.press(`${shortcut}+Y`);
+    await expect(page.getByTestId("path-element-row-5")).toContainText(
+      "6. Event Trigger",
+    );
 
-  await page.getByTestId("path-element-row-0").click();
-  await page.getByLabel("X (m)").focus();
-  await page.keyboard.press(`${shortcut}+Z`);
-  await expect(page.getByTestId("path-element-row-5")).toContainText(
-    "6. Event Trigger",
-  );
-  await page.keyboard.press(`${shortcut}+B`);
-  await expect(
-    page.getByRole("button", { name: "Toggle inspector" }),
-  ).toHaveAttribute("aria-expanded", "false");
-  await page.keyboard.press(`${shortcut}+B`);
-  await expect(
-    page.getByRole("button", { name: "Toggle inspector" }),
-  ).toHaveAttribute("aria-expanded", "true");
+    await page.getByTestId("path-element-row-0").click();
+    await page.getByLabel("X (m)").focus();
+    await page.keyboard.press(`${shortcut}+Z`);
+    await expect(page.getByTestId("path-element-row-5")).toContainText(
+      "6. Event Trigger",
+    );
+    await page.keyboard.press(`${shortcut}+B`);
+    await expect(
+      page.getByRole("button", { name: "Toggle inspector" }),
+    ).toHaveAttribute("aria-expanded", "false");
+    await page.keyboard.press(`${shortcut}+B`);
+    await expect(
+      page.getByRole("button", { name: "Toggle inspector" }),
+    ).toHaveAttribute("aria-expanded", "true");
 
-  await page.getByTestId("path-element-row-5").click();
-  await page.keyboard.press("Delete");
-  await expect(page.getByTestId("path-element-row-5")).toContainText(
-    "6. Waypoint",
-  );
+    await page.getByTestId("path-element-row-5").click();
+    await page.keyboard.press("Delete");
+    await expect(page.getByTestId("path-element-row-5")).toContainText(
+      "6. Waypoint",
+    );
 
-  await page.keyboard.press(`${shortcut}+Z`);
-  await expect(page.getByTestId("path-element-row-5")).toContainText(
-    "6. Event Trigger",
-  );
+    await page.keyboard.press(`${shortcut}+Z`);
+    await expect(page.getByTestId("path-element-row-5")).toContainText(
+      "6. Event Trigger",
+    );
 
-  await page.keyboard.press(`${shortcut}+S`);
-  await expect(page.getByTestId("save-status")).toContainText("Saved");
+    await page.keyboard.press(`${shortcut}+S`);
+    await expect(page.getByTestId("save-status")).toContainText("Saved");
 
-  await page.keyboard.press("?");
-  await expect(
-    page.getByRole("dialog", { name: "Keyboard shortcuts" }),
-  ).toBeVisible();
-  await page.keyboard.press("Escape");
-});
+    await page.keyboard.press("?");
+    await expect(
+      page.getByRole("dialog", { name: "Keyboard shortcuts" }),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+  },
+);
 
 test("keeps global shortcuts behind the path name dialog", async ({ page }) => {
   await gotoSampleEditor(page);

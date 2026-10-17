@@ -217,61 +217,65 @@ test("resizes the navigator with pointer and keyboard while retaining canvas spa
   await expect(nav).toHaveCount(0);
 });
 
-test("creates Paths inline with unique defaults, name validation, and undo @webkit-canvas", async ({
-  page,
-}) => {
-  await gotoSampleEditor(page);
-  const nav = await openPathLibraryDialog(page);
-  const create = nav.getByRole("button", {
-    name: "Create new path",
-    exact: true,
-  });
-  const name = nav.getByRole("textbox", { name: "Path name", exact: true });
-  await create.click();
-  await expect(
-    page.getByRole("dialog", { name: "Create New Path", exact: true }),
-  ).toHaveCount(0);
-  await expect(name).toBeFocused();
-  await expect(name).toHaveValue("New Path");
-  expect(
-    await name.evaluate((el: HTMLInputElement) => [
-      el.selectionStart,
-      el.selectionEnd,
-    ]),
-  ).toEqual([0, 8]);
-  await name.press("Escape");
-  await expect(focusName(nav)).toHaveText("New Path");
-  await expect(nav.locator(".fc-paths .fc-name")).toHaveText([
-    "New Path",
-    sample,
-  ]);
-  await expect(focusCount(nav)).toHaveText("0 Path Groups connected");
-  await create.click();
-  await expect(name).toBeFocused();
-  await expect(name).toHaveValue("New Path 2");
-  await name.fill("New Path");
-  await name.press("Enter");
-  await expect(name).toHaveAttribute("aria-invalid", "true");
-  await name.fill("Testing");
-  await nav.getByRole("searchbox", { name: "Search paths" }).click();
-  await expect(name).toHaveCount(0);
-  await expect(focusName(nav)).toHaveText("Testing");
-  await expect(nav.locator(".fc-paths .fc-name")).toHaveText([
-    "Testing",
-    "New Path",
-    sample,
-  ]);
-  await nav.getByRole("button", { name: "Focus Testing", exact: true }).click();
-  await page.keyboard.press("ControlOrMeta+z");
-  await expect(focusName(nav)).toHaveText("New Path 2");
-  await page.keyboard.press("ControlOrMeta+z");
-  await expect(nav.locator(".fc-paths .fc-row")).toHaveCount(2);
-  await page.keyboard.press("ControlOrMeta+Shift+z");
-  await expect(nav.locator(".fc-paths .fc-row")).toHaveCount(3);
-  await expect(page.getByTestId("current-path-status")).toHaveText(
-    `Current Path: ${sample}`,
-  );
-});
+test(
+  "creates Paths inline with unique defaults, name validation, and undo @webkit-canvas",
+  { tag: "@smoke" },
+  async ({ page }) => {
+    await gotoSampleEditor(page);
+    const nav = await openPathLibraryDialog(page);
+    const create = nav.getByRole("button", {
+      name: "Create new path",
+      exact: true,
+    });
+    const name = nav.getByRole("textbox", { name: "Path name", exact: true });
+    await create.click();
+    await expect(
+      page.getByRole("dialog", { name: "Create New Path", exact: true }),
+    ).toHaveCount(0);
+    await expect(name).toBeFocused();
+    await expect(name).toHaveValue("New Path");
+    expect(
+      await name.evaluate((el: HTMLInputElement) => [
+        el.selectionStart,
+        el.selectionEnd,
+      ]),
+    ).toEqual([0, 8]);
+    await name.press("Escape");
+    await expect(focusName(nav)).toHaveText("New Path");
+    await expect(nav.locator(".fc-paths .fc-name")).toHaveText([
+      "New Path",
+      sample,
+    ]);
+    await expect(focusCount(nav)).toHaveText("0 Path Groups connected");
+    await create.click();
+    await expect(name).toBeFocused();
+    await expect(name).toHaveValue("New Path 2");
+    await name.fill("New Path");
+    await name.press("Enter");
+    await expect(name).toHaveAttribute("aria-invalid", "true");
+    await name.fill("Testing");
+    await nav.getByRole("searchbox", { name: "Search paths" }).click();
+    await expect(name).toHaveCount(0);
+    await expect(focusName(nav)).toHaveText("Testing");
+    await expect(nav.locator(".fc-paths .fc-name")).toHaveText([
+      "Testing",
+      "New Path",
+      sample,
+    ]);
+    await nav
+      .getByRole("button", { name: "Focus Testing", exact: true })
+      .click();
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(focusName(nav)).toHaveText("New Path 2");
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(nav.locator(".fc-paths .fc-row")).toHaveCount(2);
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect(nav.locator(".fc-paths .fc-row")).toHaveCount(3);
+    await expect(page.getByTestId("current-path-status")).toHaveText(
+      `Current Path: ${sample}`,
+    );
+  },
+);
 
 test("keeps navigator icon actions usable with the keyboard", async ({
   page,
@@ -466,64 +470,66 @@ test("disconnects endpoints in either direction and previews the selected path",
   );
 });
 
-test("drags links both ways, previews the target, and cancels safely", async ({
-  page,
-}) => {
-  await gotoSampleEditor(page);
-  const nav = await openPathLibraryDialog(page);
-  await createGroup(nav, "Competition");
-  await createGroup(nav, "Testing");
-  await nav
-    .getByRole("button", { name: "Focus Competition", exact: true })
-    .click();
-  await startDrag(page, port(nav, "Competition"), port(nav, sample));
-  await expect(nav.locator(".fc-wire-preview.is-snapped")).toHaveCount(1);
-  await expect(row(nav, sample)).toHaveClass(/is-drop-target/);
-  await page.mouse.up();
-  await expect(focusCount(nav)).toHaveText("1 Path connected");
-  await nav
-    .getByRole("button", { name: `Focus ${sample}`, exact: true })
-    .click();
-  await startDrag(
-    page,
-    port(nav, "Testing"),
-    row(nav, sample).locator(".fc-select"),
-  );
-  await page.mouse.up();
-  await expect(focusName(nav)).toHaveText(sample);
-  await expect(focusCount(nav)).toHaveText("2 Path Groups connected");
-  await startDrag(
-    page,
-    port(nav, "Testing"),
-    row(nav, sample).locator(".fc-select"),
-  );
-  await page.mouse.up();
-  await expect(focusCount(nav)).toHaveText("2 Path Groups connected");
-  await nav
-    .getByRole("button", { name: `Focus ${sample}`, exact: true })
-    .press("ControlOrMeta+z");
-  await expect(focusCount(nav)).toHaveText("1 Path Group connected");
-  await nav.getByRole("searchbox", { name: "Search paths" }).focus();
-  await startDrag(
-    page,
-    port(nav, "Testing"),
-    row(nav, sample).locator(".fc-select"),
-  );
-  await page.keyboard.press("Escape");
-  await page.mouse.up();
-  await expect(nav).toBeVisible();
-  await expect(nav.locator(".fc-wire-preview")).toHaveCount(0);
-  await expect(focusCount(nav)).toHaveText("1 Path Group connected");
-  await startDrag(
-    page,
-    port(nav, "Competition"),
-    row(nav, "Testing").locator(".fc-select"),
-  );
-  await page.mouse.up();
-  await expect(nav.locator(".fc-wire-preview")).toHaveCount(0);
-  await expect(focusName(nav)).toHaveText(sample);
-  await expect(focusCount(nav)).toHaveText("1 Path Group connected");
-});
+test(
+  "drags links both ways, previews the target, and cancels safely",
+  { tag: "@smoke" },
+  async ({ page }) => {
+    await gotoSampleEditor(page);
+    const nav = await openPathLibraryDialog(page);
+    await createGroup(nav, "Competition");
+    await createGroup(nav, "Testing");
+    await nav
+      .getByRole("button", { name: "Focus Competition", exact: true })
+      .click();
+    await startDrag(page, port(nav, "Competition"), port(nav, sample));
+    await expect(nav.locator(".fc-wire-preview.is-snapped")).toHaveCount(1);
+    await expect(row(nav, sample)).toHaveClass(/is-drop-target/);
+    await page.mouse.up();
+    await expect(focusCount(nav)).toHaveText("1 Path connected");
+    await nav
+      .getByRole("button", { name: `Focus ${sample}`, exact: true })
+      .click();
+    await startDrag(
+      page,
+      port(nav, "Testing"),
+      row(nav, sample).locator(".fc-select"),
+    );
+    await page.mouse.up();
+    await expect(focusName(nav)).toHaveText(sample);
+    await expect(focusCount(nav)).toHaveText("2 Path Groups connected");
+    await startDrag(
+      page,
+      port(nav, "Testing"),
+      row(nav, sample).locator(".fc-select"),
+    );
+    await page.mouse.up();
+    await expect(focusCount(nav)).toHaveText("2 Path Groups connected");
+    await nav
+      .getByRole("button", { name: `Focus ${sample}`, exact: true })
+      .press("ControlOrMeta+z");
+    await expect(focusCount(nav)).toHaveText("1 Path Group connected");
+    await nav.getByRole("searchbox", { name: "Search paths" }).focus();
+    await startDrag(
+      page,
+      port(nav, "Testing"),
+      row(nav, sample).locator(".fc-select"),
+    );
+    await page.keyboard.press("Escape");
+    await page.mouse.up();
+    await expect(nav).toBeVisible();
+    await expect(nav.locator(".fc-wire-preview")).toHaveCount(0);
+    await expect(focusCount(nav)).toHaveText("1 Path Group connected");
+    await startDrag(
+      page,
+      port(nav, "Competition"),
+      row(nav, "Testing").locator(".fc-select"),
+    );
+    await page.mouse.up();
+    await expect(nav.locator(".fc-wire-preview")).toHaveCount(0);
+    await expect(focusName(nav)).toHaveText(sample);
+    await expect(focusCount(nav)).toHaveText("1 Path Group connected");
+  },
+);
 
 test("undo and redo work immediately after renaming, dragging, toggling, and deleting", async ({
   page,

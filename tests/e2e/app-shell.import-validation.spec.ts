@@ -128,31 +128,33 @@ test("cancelling a duplicate import keeps the existing project without a disk co
   await expect(page.getByTestId("save-status")).toContainText("Saved");
 });
 
-test("rejects unrelated JSON and then accepts an intentionally empty path", async ({
-  page,
-}) => {
-  await gotoSampleEditor(page);
-  const before = await storedProject(page);
-  await importJson(page, "Path", { unexpected: "not a path" });
-  await expect(
-    page.getByText(/does not contain a supported BLine path/).first(),
-  ).toBeVisible();
-  expect(await storedProject(page)).toEqual(before);
-  await page.keyboard.press("Escape");
-  await expect(
-    page.getByRole("dialog", { name: "Could not import" }),
-  ).toHaveCount(0);
-  await expect(page.getByTestId("save-status")).toContainText("Saved");
-  await importJson(page, "Path", { path_elements: [] });
-  await expect(page.getByTestId("current-path-status")).toHaveText(
-    "Current Path: import",
-  );
-  await expect(page.getByTestId("save-status")).toContainText("Saved");
-  await page.reload();
-  await expect(page.getByTestId("current-path-status")).toHaveText(
-    "Current Path: import",
-  );
-});
+test(
+  "rejects unrelated JSON and then accepts an intentionally empty path",
+  { tag: "@smoke" },
+  async ({ page }) => {
+    await gotoSampleEditor(page);
+    const before = await storedProject(page);
+    await importJson(page, "Path", { unexpected: "not a path" });
+    await expect(
+      page.getByText(/does not contain a supported BLine path/).first(),
+    ).toBeVisible();
+    expect(await storedProject(page)).toEqual(before);
+    await page.keyboard.press("Escape");
+    await expect(
+      page.getByRole("dialog", { name: "Could not import" }),
+    ).toHaveCount(0);
+    await expect(page.getByTestId("save-status")).toContainText("Saved");
+    await importJson(page, "Path", { path_elements: [] });
+    await expect(page.getByTestId("current-path-status")).toHaveText(
+      "Current Path: import",
+    );
+    await expect(page.getByTestId("save-status")).toContainText("Saved");
+    await page.reload();
+    await expect(page.getByTestId("current-path-status")).toHaveText(
+      "Current Path: import",
+    );
+  },
+);
 
 test("reimports an edited archive by replacement, or keeps a separate copy", async ({
   page,

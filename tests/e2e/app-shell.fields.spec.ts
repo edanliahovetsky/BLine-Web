@@ -20,75 +20,81 @@ import {
   openProjectSettings,
 } from "./support/app-shell-shared";
 
-test("edits project config with undo support", async ({ page }) => {
-  await gotoSampleEditor(page);
+test(
+  "edits project config with undo support",
+  { tag: "@smoke" },
+  async ({ page }) => {
+    await gotoSampleEditor(page);
 
-  await openProjectSettings(page);
-  const dialog = page.getByRole("dialog", { name: "Edit Config" });
-  const saveButton = dialog.getByRole("button", { name: "Save" });
-  await expect(dialog).toBeVisible();
-  await expect(saveButton).toBeDisabled();
-  await expect(dialog.locator(".config-dialog__nav-item")).toHaveText([
-    "Robot",
-    "Path Defaults",
-    "Field",
-    "Generator",
-    "Event Triggers",
-  ]);
-  await expect(
-    dialog.getByRole("heading", { name: "Auto Velocity" }),
-  ).toHaveCount(0);
-  await expect(dialog.getByRole("button", { name: "Robot" })).toHaveAttribute(
-    "aria-current",
-    "page",
-  );
-  await dialog.getByRole("button", { name: "Generator" }).click();
-  await expect(
-    dialog.getByRole("heading", { name: "Constraint Generation" }),
-  ).toBeVisible();
-  await expect(
-    dialog.getByRole("heading", { name: "Generator" }),
-  ).toBeVisible();
-  await dialog.getByRole("button", { name: "Robot" }).click();
-  await expect(dialog.getByLabel("Protrusion Distance (m)")).toBeDisabled();
-  await expect(
-    dialog.getByTitle("Increase Protrusion Distance (m)"),
-  ).toBeDisabled();
-  await expect(dialog.getByLabel("Protrusion Side")).toBeDisabled();
-  await expect(dialog.getByTitle("Increase Robot Length (m)")).toBeVisible();
-  await page.getByLabel("Robot Length (m)").fill("0.825");
-  await expect(saveButton).toBeEnabled();
-  await page.getByLabel("Enable Protrusions").check();
-  await expect(dialog.getByLabel("Protrusion Distance (m)")).toBeEnabled();
-  await expect(
-    dialog.getByTitle("Increase Protrusion Distance (m)"),
-  ).toBeEnabled();
-  await expect(dialog.getByLabel("Protrusion Side")).toBeEnabled();
-  await expect(page.getByLabel("Default Protrusion State")).toHaveText("Shown");
-  await selectDropdownOption(page, "Protrusion Side", "Front");
-  await page
-    .getByRole("button", { name: "Add show event key", exact: true })
-    .click();
-  await page.getByLabel("Show event key 1", { exact: true }).fill("intake");
-  await page
-    .getByRole("button", { name: "Add show event key", exact: true })
-    .click();
-  await page.getByLabel("Show event key 2", { exact: true }).fill("deploy");
-  await saveButton.click();
-  await expect(page.getByTestId("save-status")).toContainText(
-    /Autosave pending|Saved/,
-  );
+    await openProjectSettings(page);
+    const dialog = page.getByRole("dialog", { name: "Edit Config" });
+    const saveButton = dialog.getByRole("button", { name: "Save" });
+    await expect(dialog).toBeVisible();
+    await expect(saveButton).toBeDisabled();
+    await expect(dialog.locator(".config-dialog__nav-item")).toHaveText([
+      "Robot",
+      "Path Defaults",
+      "Field",
+      "Generator",
+      "Event Triggers",
+    ]);
+    await expect(
+      dialog.getByRole("heading", { name: "Auto Velocity" }),
+    ).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: "Robot" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    await dialog.getByRole("button", { name: "Generator" }).click();
+    await expect(
+      dialog.getByRole("heading", { name: "Constraint Generation" }),
+    ).toBeVisible();
+    await expect(
+      dialog.getByRole("heading", { name: "Generator" }),
+    ).toBeVisible();
+    await dialog.getByRole("button", { name: "Robot" }).click();
+    await expect(dialog.getByLabel("Protrusion Distance (m)")).toBeDisabled();
+    await expect(
+      dialog.getByTitle("Increase Protrusion Distance (m)"),
+    ).toBeDisabled();
+    await expect(dialog.getByLabel("Protrusion Side")).toBeDisabled();
+    await expect(dialog.getByTitle("Increase Robot Length (m)")).toBeVisible();
+    await page.getByLabel("Robot Length (m)").fill("0.825");
+    await expect(saveButton).toBeEnabled();
+    await page.getByLabel("Enable Protrusions").check();
+    await expect(dialog.getByLabel("Protrusion Distance (m)")).toBeEnabled();
+    await expect(
+      dialog.getByTitle("Increase Protrusion Distance (m)"),
+    ).toBeEnabled();
+    await expect(dialog.getByLabel("Protrusion Side")).toBeEnabled();
+    await expect(page.getByLabel("Default Protrusion State")).toHaveText(
+      "Shown",
+    );
+    await selectDropdownOption(page, "Protrusion Side", "Front");
+    await page
+      .getByRole("button", { name: "Add show event key", exact: true })
+      .click();
+    await page.getByLabel("Show event key 1", { exact: true }).fill("intake");
+    await page
+      .getByRole("button", { name: "Add show event key", exact: true })
+      .click();
+    await page.getByLabel("Show event key 2", { exact: true }).fill("deploy");
+    await saveButton.click();
+    await expect(page.getByTestId("save-status")).toContainText(
+      /Autosave pending|Saved/,
+    );
 
-  await runEditMenuAction(page, "Undo");
-  await openProjectSettings(page);
-  await page.getByRole("button", { name: "Robot" }).click();
-  await expect(page.getByLabel("Robot Length (m)")).toHaveValue("0.8");
-  await page.getByRole("button", { name: "Path Defaults" }).click();
-  await expect(page.getByLabel("Default Max Accel (m/s2)")).toHaveValue("12");
-  await page.getByRole("button", { name: "Robot" }).click();
-  await expect(page.getByLabel("Enable Protrusions")).not.toBeChecked();
-  await page.getByRole("button", { name: "Close config" }).click();
-});
+    await runEditMenuAction(page, "Undo");
+    await openProjectSettings(page);
+    await page.getByRole("button", { name: "Robot" }).click();
+    await expect(page.getByLabel("Robot Length (m)")).toHaveValue("0.8");
+    await page.getByRole("button", { name: "Path Defaults" }).click();
+    await expect(page.getByLabel("Default Max Accel (m/s2)")).toHaveValue("12");
+    await page.getByRole("button", { name: "Robot" }).click();
+    await expect(page.getByLabel("Enable Protrusions")).not.toBeChecked();
+    await page.getByRole("button", { name: "Close config" }).click();
+  },
+);
 
 test("uploads and restores a custom field image from Settings", async ({
   page,

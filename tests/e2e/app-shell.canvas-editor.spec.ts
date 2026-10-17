@@ -92,82 +92,88 @@ test.describe("Pixi canvas rendering", () => {
 });
 
 for (const background of ["built-in", "grid", "custom"] as const) {
-  test(`selects and drags a canvas anchor on ${background} without rebuilding static layers @webkit-canvas`, async ({
-    page,
-  }) => {
-    await gotoSampleEditor(page);
-    await expect(page.getByTestId("path-stage-pixi-canvas")).toBeVisible();
-    if (background !== "built-in") {
-      await openProjectSettings(page);
-      const dialog = page.getByRole("dialog", { name: "Edit Config" });
-      await dialog.getByRole("button", { name: "Field", exact: true }).click();
-      if (background === "grid") {
-        await selectDropdownOption(page, "Field Image", "Blank Meter Grid");
-      } else {
-        await dialog.getByLabel("Upload field image").setInputFiles({
-          name: "practice-field.png",
-          mimeType: "image/png",
-          buffer: tinyPngBuffer(),
-        });
+  test(
+    `selects and drags a canvas anchor on ${background} without rebuilding static layers @webkit-canvas`,
+    { tag: background === "built-in" ? "@smoke" : [] },
+    async ({ page }) => {
+      await gotoSampleEditor(page);
+      await expect(page.getByTestId("path-stage-pixi-canvas")).toBeVisible();
+      if (background !== "built-in") {
+        await openProjectSettings(page);
+        const dialog = page.getByRole("dialog", { name: "Edit Config" });
+        await dialog
+          .getByRole("button", { name: "Field", exact: true })
+          .click();
+        if (background === "grid") {
+          await selectDropdownOption(page, "Field Image", "Blank Meter Grid");
+        } else {
+          await dialog.getByLabel("Upload field image").setInputFiles({
+            name: "practice-field.png",
+            mimeType: "image/png",
+            buffer: tinyPngBuffer(),
+          });
+        }
+        await dialog.getByRole("button", { name: "Save", exact: true }).click();
+        await expect(dialog).toBeHidden();
+        if (background === "grid") {
+          await expect
+            .poll(() => activeFieldLabel(page))
+            .toBe("Blank Meter Grid");
+        } else {
+          await expect.poll(() => activeFieldImageLoaded(page)).toBe(true);
+        }
       }
-      await dialog.getByRole("button", { name: "Save", exact: true }).click();
-      await expect(dialog).toBeHidden();
-      if (background === "grid") {
-        await expect
-          .poll(() => activeFieldLabel(page))
-          .toBe("Blank Meter Grid");
-      } else {
-        await expect.poll(() => activeFieldImageLoaded(page)).toBe(true);
+
+      const stage = page.getByTestId("path-stage");
+      await expect(stage).toBeVisible();
+      await waitForCanvasSettled(page);
+
+      const selectedRow = page.getByTestId("path-element-row-0");
+      await selectedRow.click();
+      const canvas = page.getByTestId("path-stage-canvas");
+      const box = await requiredBox(canvas);
+      const node = await canvasNodePosition(page, "path-element-node-0");
+      const firstAnchor = { x: box.x + node.x, y: box.y + node.y };
+
+      await page.mouse.click(firstAnchor.x, firstAnchor.y);
+      await expect(selectedRow).toHaveAttribute("aria-pressed", "true");
+      await expect(page.getByLabel("X (m)")).toHaveValue("5.7");
+      await expect(page.getByLabel("Y (m)")).toHaveValue("2.5");
+      const pixiCanvas = page.getByTestId("path-stage-pixi-canvas");
+      const rendererInstanceId = await pixiCanvas.getAttribute(
+        "data-renderer-instance-id",
+      );
+      if (!rendererInstanceId) {
+        throw new Error("Expected a mounted Pixi renderer");
       }
-    }
+      const beforeDrag = await canvasMetrics(page);
 
-    const stage = page.getByTestId("path-stage");
-    await expect(stage).toBeVisible();
-    await waitForCanvasSettled(page);
+      await page.mouse.move(firstAnchor.x, firstAnchor.y);
+      await page.mouse.down();
+      await page.mouse.move(firstAnchor.x + 80, firstAnchor.y - 48, {
+        steps: 8,
+      });
+      await expect(pixiCanvas).toHaveAttribute(
+        "data-renderer-instance-id",
+        rendererInstanceId,
+      );
+      const duringDrag = await canvasMetrics(page);
+      expect(duringDrag.renderCount).toBeGreaterThan(beforeDrag.renderCount);
+      expect(duringDrag.fieldDrawCount).toBe(beforeDrag.fieldDrawCount);
+      expect(duringDrag.overlayDrawCount).toBe(beforeDrag.overlayDrawCount);
+      await page.mouse.up();
 
-    const selectedRow = page.getByTestId("path-element-row-0");
-    await selectedRow.click();
-    const canvas = page.getByTestId("path-stage-canvas");
-    const box = await requiredBox(canvas);
-    const node = await canvasNodePosition(page, "path-element-node-0");
-    const firstAnchor = { x: box.x + node.x, y: box.y + node.y };
-
-    await page.mouse.click(firstAnchor.x, firstAnchor.y);
-    await expect(selectedRow).toHaveAttribute("aria-pressed", "true");
-    await expect(page.getByLabel("X (m)")).toHaveValue("5.7");
-    await expect(page.getByLabel("Y (m)")).toHaveValue("2.5");
-    const pixiCanvas = page.getByTestId("path-stage-pixi-canvas");
-    const rendererInstanceId = await pixiCanvas.getAttribute(
-      "data-renderer-instance-id",
-    );
-    if (!rendererInstanceId) {
-      throw new Error("Expected a mounted Pixi renderer");
-    }
-    const beforeDrag = await canvasMetrics(page);
-
-    await page.mouse.move(firstAnchor.x, firstAnchor.y);
-    await page.mouse.down();
-    await page.mouse.move(firstAnchor.x + 80, firstAnchor.y - 48, { steps: 8 });
-    await expect(pixiCanvas).toHaveAttribute(
-      "data-renderer-instance-id",
-      rendererInstanceId,
-    );
-    const duringDrag = await canvasMetrics(page);
-    expect(duringDrag.renderCount).toBeGreaterThan(beforeDrag.renderCount);
-    expect(duringDrag.fieldDrawCount).toBe(beforeDrag.fieldDrawCount);
-    expect(duringDrag.overlayDrawCount).toBe(beforeDrag.overlayDrawCount);
-    await page.mouse.up();
-
-    await expect(page.getByLabel("X (m)")).not.toHaveValue("5.7");
-    await expect(page.getByTestId("save-status")).toContainText("Saved");
-    await expect(pixiCanvas).toHaveAttribute(
-      "data-renderer-instance-id",
-      rendererInstanceId,
-    );
-    expect((await canvasMetrics(page)).fieldDrawCount).toBe(
-      beforeDrag.fieldDrawCount,
-    );
-  });
+      await expect(page.getByLabel("X (m)")).not.toHaveValue("5.7");
+      await expect(page.getByTestId("save-status")).toContainText("Saved");
+      await expect(pixiCanvas).toHaveAttribute(
+        "data-renderer-instance-id",
+        rendererInstanceId,
+      );
+      expect((await canvasMetrics(page)).fieldDrawCount).toBe(
+        beforeDrag.fieldDrawCount,
+      );
+    },
+  );
 }
 
 test("keeps handoff radius editing in Constraints", async ({ page }) => {
@@ -279,131 +285,135 @@ test("defers autosave while a dirty canvas drag is active", async ({
   expect(await workspaceWriteCount(page)).toBeGreaterThan(0);
 });
 
-test("plays and seeks the simulation transport", async ({ page }) => {
-  await page.clock.install();
-  await gotoSampleEditor(page);
-  await expect(
-    page.getByRole("button", { name: "Fast forward simulation" }),
-  ).toBeEnabled();
-  // Advance playback explicitly: a slow pointer action must not let the
-  // simulation end and remove Pause before the test can click it.
-  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000));
+test(
+  "plays and seeks the simulation transport",
+  { tag: "@smoke" },
+  async ({ page }) => {
+    await page.clock.install();
+    await gotoSampleEditor(page);
+    await expect(
+      page.getByRole("button", { name: "Fast forward simulation" }),
+    ).toBeEnabled();
+    // Advance playback explicitly: a slow pointer action must not let the
+    // simulation end and remove Pause before the test can click it.
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000));
 
-  const transport = page.getByTestId("simulation-transport");
-  await expect(transport).toBeVisible();
-  await expect(transport).toHaveAttribute("data-tour-play-count", "0");
-  await expect(page.getByTestId("simulation-time")).toContainText("0.00 /");
-  await expect(
-    transport.getByRole("button", { name: "Reset simulation" }),
-  ).toBeDisabled();
-  await expect(
-    transport.getByRole("button", { name: "Fast forward simulation" }),
-  ).toBeEnabled();
-  await expect(
-    transport.getByRole("button", { name: "Play simulation" }),
-  ).toHaveText("");
-  await expect(
-    transport.getByRole("button", { name: "Play simulation" }),
-  ).toHaveAttribute("aria-keyshortcuts", "Space K");
-  await expect(
-    transport.getByRole("button", { name: "Reset simulation" }),
-  ).toHaveAttribute("aria-keyshortcuts", "J Home");
-  await expect(
-    transport.getByRole("button", { name: "Fast forward simulation" }),
-  ).toHaveAttribute("aria-keyshortcuts", "L End");
+    const transport = page.getByTestId("simulation-transport");
+    await expect(transport).toBeVisible();
+    await expect(transport).toHaveAttribute("data-tour-play-count", "0");
+    await expect(page.getByTestId("simulation-time")).toContainText("0.00 /");
+    await expect(
+      transport.getByRole("button", { name: "Reset simulation" }),
+    ).toBeDisabled();
+    await expect(
+      transport.getByRole("button", { name: "Fast forward simulation" }),
+    ).toBeEnabled();
+    await expect(
+      transport.getByRole("button", { name: "Play simulation" }),
+    ).toHaveText("");
+    await expect(
+      transport.getByRole("button", { name: "Play simulation" }),
+    ).toHaveAttribute("aria-keyshortcuts", "Space K");
+    await expect(
+      transport.getByRole("button", { name: "Reset simulation" }),
+    ).toHaveAttribute("aria-keyshortcuts", "J Home");
+    await expect(
+      transport.getByRole("button", { name: "Fast forward simulation" }),
+    ).toHaveAttribute("aria-keyshortcuts", "L End");
 
-  await page.getByTestId("path-stage").focus();
-  await page.keyboard.press("Space");
-  await expect(transport).toHaveAttribute("data-tour-play-count", "1");
-  await expect(
-    transport.getByRole("button", { name: "Pause simulation" }),
-  ).toBeVisible();
-  await expect
-    .poll(async () => {
-      await page.clock.runFor(16);
-      return page.getByTestId("simulation-time").innerText();
-    })
-    .not.toMatch(/^0\.00 /);
-  await transport.getByRole("button", { name: "Pause simulation" }).click();
-
-  await page.getByLabel("Simulation time").evaluate((input) => {
-    if (!(input instanceof HTMLInputElement)) {
-      throw new Error("Expected range input");
-    }
-    input.value = "1.00";
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-  });
-  await expect(page.getByTestId("simulation-time")).toContainText("1.00 /");
-
-  await page.getByTestId("path-stage").focus();
-  await page.keyboard.press("l");
-  await expect
-    .poll(() => simulationProgress(page))
-    .toMatchObject({
-      atEnd: true,
-    });
-
-  await page.keyboard.press("j");
-  await expect(page.getByTestId("simulation-time")).toContainText("0.00 /");
-
-  await page.keyboard.press("End");
-  await expect
-    .poll(() => simulationProgress(page))
-    .toMatchObject({
-      atEnd: true,
-    });
-
-  await page.keyboard.press("Home");
-  await expect(page.getByTestId("simulation-time")).toContainText("0.00 /");
-
-  await page.getByLabel("Simulation time").evaluate((input) => {
-    if (!(input instanceof HTMLInputElement)) {
-      throw new Error("Expected range input");
-    }
-    input.value = "0.00";
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-  });
-  await expect(page.getByTestId("simulation-time")).toContainText("0.00 /");
-
-  const pulse = await page
-    .getByTestId("path-stage-canvas")
-    .evaluateHandle((canvas) => {
-      const result = { peak: 0 };
-      const observer = new MutationObserver(() => {
-        result.peak = Math.max(
-          result.peak,
-          Number(canvas.getAttribute("data-simulation-event-pulse") ?? 0),
-        );
-      });
-      observer.observe(canvas, {
-        attributes: true,
-        attributeFilter: ["data-simulation-event-pulse"],
-      });
-      return { result, stop: () => observer.disconnect() };
-    });
-  try {
-    const duration = Number(
-      await page.getByLabel("Simulation time").getAttribute("max"),
-    );
-    expect(duration).toBeGreaterThan(0);
-    await transport.getByRole("button", { name: "Play simulation" }).click();
-    // Run the whole timeline, recording the visible pulse when it happens.
-    // The number of frames must not depend on how many remote polls a runner
-    // can squeeze into ten wall-clock seconds.
-    await page.clock.runFor(Math.ceil(duration * 1000) + 100);
+    await page.getByTestId("path-stage").focus();
+    await page.keyboard.press("Space");
+    await expect(transport).toHaveAttribute("data-tour-play-count", "1");
+    await expect(
+      transport.getByRole("button", { name: "Pause simulation" }),
+    ).toBeVisible();
     await expect
-      .poll(() => pulse.evaluate(({ result }) => result.peak))
-      .toBeGreaterThan(0.4);
+      .poll(async () => {
+        await page.clock.runFor(16);
+        return page.getByTestId("simulation-time").innerText();
+      })
+      .not.toMatch(/^0\.00 /);
+    await transport.getByRole("button", { name: "Pause simulation" }).click();
+
+    await page.getByLabel("Simulation time").evaluate((input) => {
+      if (!(input instanceof HTMLInputElement)) {
+        throw new Error("Expected range input");
+      }
+      input.value = "1.00";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await expect(page.getByTestId("simulation-time")).toContainText("1.00 /");
+
+    await page.getByTestId("path-stage").focus();
+    await page.keyboard.press("l");
     await expect
       .poll(() => simulationProgress(page))
-      .toMatchObject({ atEnd: true });
-  } finally {
-    await pulse.evaluate(({ stop }) => stop());
-    await pulse.dispose();
-  }
-});
+      .toMatchObject({
+        atEnd: true,
+      });
+
+    await page.keyboard.press("j");
+    await expect(page.getByTestId("simulation-time")).toContainText("0.00 /");
+
+    await page.keyboard.press("End");
+    await expect
+      .poll(() => simulationProgress(page))
+      .toMatchObject({
+        atEnd: true,
+      });
+
+    await page.keyboard.press("Home");
+    await expect(page.getByTestId("simulation-time")).toContainText("0.00 /");
+
+    await page.getByLabel("Simulation time").evaluate((input) => {
+      if (!(input instanceof HTMLInputElement)) {
+        throw new Error("Expected range input");
+      }
+      input.value = "0.00";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await expect(page.getByTestId("simulation-time")).toContainText("0.00 /");
+
+    const pulse = await page
+      .getByTestId("path-stage-canvas")
+      .evaluateHandle((canvas) => {
+        const result = { peak: 0 };
+        const observer = new MutationObserver(() => {
+          result.peak = Math.max(
+            result.peak,
+            Number(canvas.getAttribute("data-simulation-event-pulse") ?? 0),
+          );
+        });
+        observer.observe(canvas, {
+          attributes: true,
+          attributeFilter: ["data-simulation-event-pulse"],
+        });
+        return { result, stop: () => observer.disconnect() };
+      });
+    try {
+      const duration = Number(
+        await page.getByLabel("Simulation time").getAttribute("max"),
+      );
+      expect(duration).toBeGreaterThan(0);
+      await transport.getByRole("button", { name: "Play simulation" }).click();
+      // Run the whole timeline, recording the visible pulse when it happens.
+      // The number of frames must not depend on how many remote polls a runner
+      // can squeeze into ten wall-clock seconds.
+      await page.clock.runFor(Math.ceil(duration * 1000) + 100);
+      await expect
+        .poll(() => pulse.evaluate(({ result }) => result.peak))
+        .toBeGreaterThan(0.4);
+      await expect
+        .poll(() => simulationProgress(page))
+        .toMatchObject({ atEnd: true });
+    } finally {
+      await pulse.evaluate(({ stop }) => stop());
+      await pulse.dispose();
+    }
+  },
+);
 
 test("creates every path element type from the inspector menu", async ({
   page,
@@ -456,78 +466,80 @@ test("creates every path element type from the inspector menu", async ({
   await expect(page.getByLabel("Lib Key")).toHaveValue("");
 });
 
-test("places every path element type with the canvas tools", async ({
-  page,
-}) => {
-  await gotoSampleEditor(page);
-  await createNewProject(page);
+test(
+  "places every path element type with the canvas tools",
+  { tag: "@smoke" },
+  async ({ page }) => {
+    await gotoSampleEditor(page);
+    await createNewProject(page);
 
-  const canvas = page.getByTestId("path-stage-canvas");
-  const canvasBox = await requiredBox(canvas);
-  const tools = page.getByRole("complementary", { name: "Canvas tools" });
-  const waypointTool = tools.getByRole("button", {
-    name: "Waypoint tool",
-    exact: true,
-  });
-  const translationTool = tools.getByRole("button", {
-    name: "Translation tool",
-    exact: true,
-  });
-  const rotationTool = tools.getByRole("button", {
-    name: "Rotation tool",
-    exact: true,
-  });
-  const eventTool = tools.getByRole("button", {
-    name: "Event tool",
-    exact: true,
-  });
-  await expect(rotationTool).toBeDisabled();
-  await expect(eventTool).toBeDisabled();
+    const canvas = page.getByTestId("path-stage-canvas");
+    const canvasBox = await requiredBox(canvas);
+    const tools = page.getByRole("complementary", { name: "Canvas tools" });
+    const waypointTool = tools.getByRole("button", {
+      name: "Waypoint tool",
+      exact: true,
+    });
+    const translationTool = tools.getByRole("button", {
+      name: "Translation tool",
+      exact: true,
+    });
+    const rotationTool = tools.getByRole("button", {
+      name: "Rotation tool",
+      exact: true,
+    });
+    const eventTool = tools.getByRole("button", {
+      name: "Event tool",
+      exact: true,
+    });
+    await expect(rotationTool).toBeDisabled();
+    await expect(eventTool).toBeDisabled();
 
-  const waypointPoint = modelToCanvasPoint(canvasBox, {
-    x_meters: 3,
-    y_meters: 3,
-  });
-  await waypointTool.click();
-  await page.mouse.click(waypointPoint.x, waypointPoint.y);
-  await expect(page.getByLabel("X (m)")).toHaveValue("3");
-  await expect(page.getByLabel("Y (m)")).toHaveValue("3");
+    const waypointPoint = modelToCanvasPoint(canvasBox, {
+      x_meters: 3,
+      y_meters: 3,
+    });
+    await waypointTool.click();
+    await page.mouse.click(waypointPoint.x, waypointPoint.y);
+    await expect(page.getByLabel("X (m)")).toHaveValue("3");
+    await expect(page.getByLabel("Y (m)")).toHaveValue("3");
 
-  const translationPoint = modelToCanvasPoint(canvasBox, {
-    x_meters: 9,
-    y_meters: 3,
-  });
-  await translationTool.click();
-  await page.mouse.click(translationPoint.x, translationPoint.y);
-  await expect(page.getByLabel("X (m)")).toHaveValue("9");
-  await expect(page.getByLabel("Y (m)")).toHaveValue("3");
-  await expect(rotationTool).toBeEnabled();
-  await expect(eventTool).toBeEnabled();
+    const translationPoint = modelToCanvasPoint(canvasBox, {
+      x_meters: 9,
+      y_meters: 3,
+    });
+    await translationTool.click();
+    await page.mouse.click(translationPoint.x, translationPoint.y);
+    await expect(page.getByLabel("X (m)")).toHaveValue("9");
+    await expect(page.getByLabel("Y (m)")).toHaveValue("3");
+    await expect(rotationTool).toBeEnabled();
+    await expect(eventTool).toBeEnabled();
 
-  const rotationPoint = modelToCanvasPoint(canvasBox, {
-    x_meters: 6,
-    y_meters: 3,
-  });
-  await rotationTool.click();
-  await page.mouse.click(rotationPoint.x, rotationPoint.y);
-  await expect(page.getByLabel("Rotation (deg)")).toHaveValue("0");
-  await expect(page.getByLabel("Rotation Pos (0-1)")).toHaveValue("0.5");
+    const rotationPoint = modelToCanvasPoint(canvasBox, {
+      x_meters: 6,
+      y_meters: 3,
+    });
+    await rotationTool.click();
+    await page.mouse.click(rotationPoint.x, rotationPoint.y);
+    await expect(page.getByLabel("Rotation (deg)")).toHaveValue("0");
+    await expect(page.getByLabel("Rotation Pos (0-1)")).toHaveValue("0.5");
 
-  const eventPoint = modelToCanvasPoint(canvasBox, {
-    x_meters: 7.5,
-    y_meters: 3,
-  });
-  await eventTool.click();
-  await page.mouse.click(eventPoint.x, eventPoint.y);
-  await expectPathElementTypes(page, [
-    "Waypoint",
-    "Rotation",
-    "Event Trigger",
-    "Translation",
-  ]);
-  await expect(page.getByLabel("Event Pos (0-1)")).toHaveValue("0.75");
-  await expect(page.getByLabel("Lib Key")).toHaveValue("");
-});
+    const eventPoint = modelToCanvasPoint(canvasBox, {
+      x_meters: 7.5,
+      y_meters: 3,
+    });
+    await eventTool.click();
+    await page.mouse.click(eventPoint.x, eventPoint.y);
+    await expectPathElementTypes(page, [
+      "Waypoint",
+      "Rotation",
+      "Event Trigger",
+      "Translation",
+    ]);
+    await expect(page.getByLabel("Event Pos (0-1)")).toHaveValue("0.75");
+    await expect(page.getByLabel("Lib Key")).toHaveValue("");
+  },
+);
 
 test("draws curves from the canvas tool and cancels safely", async ({
   page,
@@ -586,75 +598,77 @@ test("draws curves from the canvas tool and cancels safely", async ({
   await expect(selectTool).toHaveAttribute("aria-pressed", "true");
 });
 
-test("adds edits and removes path elements from the inspector", async ({
-  page,
-}) => {
-  await gotoSampleEditor(page);
+test(
+  "adds edits and removes path elements from the inspector",
+  { tag: "@smoke" },
+  async ({ page }) => {
+    await gotoSampleEditor(page);
 
-  const addElementIcon = page.getByTestId("add-element-icon");
-  await expect(addElementIcon).toBeVisible();
-  expect(
-    (await requiredBox(page.getByRole("button", { name: "Add element" })))
-      .height,
-  ).toBeGreaterThanOrEqual(30);
+    const addElementIcon = page.getByTestId("add-element-icon");
+    await expect(addElementIcon).toBeVisible();
+    expect(
+      (await requiredBox(page.getByRole("button", { name: "Add element" })))
+        .height,
+    ).toBeGreaterThanOrEqual(30);
 
-  await page.getByRole("button", { name: "Add element" }).click();
-  await page.getByRole("menuitem", { name: "Waypoint" }).click();
+    await page.getByRole("button", { name: "Add element" }).click();
+    await page.getByRole("menuitem", { name: "Waypoint" }).click();
 
-  await expect(page.getByTestId("path-element-row-6")).toContainText(
-    "7. Waypoint",
-  );
-  await expect(page.getByTestId("path-element-row-6")).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
+    await expect(page.getByTestId("path-element-row-6")).toContainText(
+      "7. Waypoint",
+    );
+    await expect(page.getByTestId("path-element-row-6")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
 
-  const typeSelect = page.getByLabel("Type");
-  const typeRow = page.locator(".property-row").filter({ has: typeSelect });
-  const typeIndicatorIcon = typeRow.locator(
-    ".dropdown-select-control__indicator svg",
-  );
-  await expect(typeIndicatorIcon).toBeVisible();
-  expect((await requiredBox(typeIndicatorIcon)).width).toBeGreaterThan(6);
+    const typeSelect = page.getByLabel("Type");
+    const typeRow = page.locator(".property-row").filter({ has: typeSelect });
+    const typeIndicatorIcon = typeRow.locator(
+      ".dropdown-select-control__indicator svg",
+    );
+    await expect(typeIndicatorIcon).toBeVisible();
+    expect((await requiredBox(typeIndicatorIcon)).width).toBeGreaterThan(6);
 
-  const xInput = page.getByRole("spinbutton", { name: "X (m)" });
-  await xInput.fill("6.25");
-  await page.getByLabel("Y (m)").fill("3.75");
-  await page.getByLabel("Rotation (deg)").fill("45");
+    const xInput = page.getByRole("spinbutton", { name: "X (m)" });
+    await xInput.fill("6.25");
+    await page.getByLabel("Y (m)").fill("3.75");
+    await page.getByLabel("Rotation (deg)").fill("45");
 
-  const xRow = page.locator(".property-row").filter({ has: xInput });
-  const increaseX = xRow.getByRole("button", { name: "Increase value" });
-  const decreaseX = xRow.getByRole("button", { name: "Decrease value" });
-  await expect(increaseX.locator("svg")).toBeVisible();
-  await expect(decreaseX.locator("svg")).toBeVisible();
-  expect((await requiredBox(increaseX.locator("svg"))).width).toBeGreaterThan(
-    6,
-  );
-  expect((await requiredBox(decreaseX.locator("svg"))).width).toBeGreaterThan(
-    6,
-  );
+    const xRow = page.locator(".property-row").filter({ has: xInput });
+    const increaseX = xRow.getByRole("button", { name: "Increase value" });
+    const decreaseX = xRow.getByRole("button", { name: "Decrease value" });
+    await expect(increaseX.locator("svg")).toBeVisible();
+    await expect(decreaseX.locator("svg")).toBeVisible();
+    expect((await requiredBox(increaseX.locator("svg"))).width).toBeGreaterThan(
+      6,
+    );
+    expect((await requiredBox(decreaseX.locator("svg"))).width).toBeGreaterThan(
+      6,
+    );
 
-  await increaseX.click();
-  await expect(xInput).toHaveValue("6.3");
-  await decreaseX.click();
-  await expect(xInput).toHaveValue("6.25");
+    await increaseX.click();
+    await expect(xInput).toHaveValue("6.3");
+    await decreaseX.click();
+    await expect(xInput).toHaveValue("6.25");
 
-  await expect(page.getByTestId("path-element-row-6")).toContainText(
-    "6.25, 3.75 m",
-  );
-  await openConstraintsTab(page);
-  await expect(page.getByTestId("handoff-radius-chip-6")).toHaveClass(
-    /handoff-radius-chip--auto/,
-  );
-  await page.getByRole("tab", { name: "Elements", exact: true }).click();
-  await expect(page.getByTestId("save-status")).toContainText(
-    /Autosave pending|Saved/,
-  );
+    await expect(page.getByTestId("path-element-row-6")).toContainText(
+      "6.25, 3.75 m",
+    );
+    await openConstraintsTab(page);
+    await expect(page.getByTestId("handoff-radius-chip-6")).toHaveClass(
+      /handoff-radius-chip--auto/,
+    );
+    await page.getByRole("tab", { name: "Elements", exact: true }).click();
+    await expect(page.getByTestId("save-status")).toContainText(
+      /Autosave pending|Saved/,
+    );
 
-  await page.getByRole("button", { name: "Remove Waypoint 7" }).click();
+    await page.getByRole("button", { name: "Remove Waypoint 7" }).click();
 
-  await expect(page.getByTestId("path-element-row-6")).toHaveCount(0);
-});
+    await expect(page.getByTestId("path-element-row-6")).toHaveCount(0);
+  },
+);
 
 test("keeps the top element removable while the icon-only add menu is open", async ({
   page,

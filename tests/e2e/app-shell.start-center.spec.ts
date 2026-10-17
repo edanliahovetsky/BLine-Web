@@ -65,42 +65,44 @@ test("returns Home through File and resumes edits, selection, and undo history",
   await expect(xInput).toHaveValue(originalX);
 });
 
-test("stays Home when creation is canceled and opens new or recent projects", async ({
-  page,
-}) => {
-  await gotoSampleEditor(page);
-  const projectName = (
-    await page.getByTestId("current-project-status").innerText()
-  ).replace(/^Project: /, "");
-  await page.getByRole("button", { name: "File", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Home", exact: true }).click();
-  const start = page.getByTestId("start-center");
-  await start
-    .getByRole("button", { name: "Create project", exact: true })
-    .click();
-  const dialog = page.getByRole("dialog", { name: "Create project" });
-  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
-  await expect(start).toBeVisible();
-  await start
-    .getByRole("button", { name: "Create project", exact: true })
-    .click();
-  await dialog
-    .getByRole("textbox", { name: "Project name" })
-    .fill("Home navigation project");
-  await dialog.getByRole("button", { name: "Done", exact: true }).click();
-  await expect(start).toHaveCount(0);
-  await expect(page.getByTestId("current-project-status")).toHaveText(
-    "Project: Home navigation project",
-  );
-  await page.getByRole("button", { name: "File", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Home", exact: true }).click();
-  await start.getByRole("button").filter({ hasText: projectName }).click();
-  await expect(start).toHaveCount(0);
-  await expect(page.getByTestId("current-project-status")).toHaveText(
-    `Project: ${projectName}`,
-  );
-  await expect(page.getByTestId("path-stage")).toBeVisible();
-});
+test(
+  "stays Home when creation is canceled and opens new or recent projects",
+  { tag: "@smoke" },
+  async ({ page }) => {
+    await gotoSampleEditor(page);
+    const projectName = (
+      await page.getByTestId("current-project-status").innerText()
+    ).replace(/^Project: /, "");
+    await page.getByRole("button", { name: "File", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Home", exact: true }).click();
+    const start = page.getByTestId("start-center");
+    await start
+      .getByRole("button", { name: "Create project", exact: true })
+      .click();
+    const dialog = page.getByRole("dialog", { name: "Create project" });
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(start).toBeVisible();
+    await start
+      .getByRole("button", { name: "Create project", exact: true })
+      .click();
+    await dialog
+      .getByRole("textbox", { name: "Project name" })
+      .fill("Home navigation project");
+    await dialog.getByRole("button", { name: "Done", exact: true }).click();
+    await expect(start).toHaveCount(0);
+    await expect(page.getByTestId("current-project-status")).toHaveText(
+      "Project: Home navigation project",
+    );
+    await page.getByRole("button", { name: "File", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Home", exact: true }).click();
+    await start.getByRole("button").filter({ hasText: projectName }).click();
+    await expect(start).toHaveCount(0);
+    await expect(page.getByTestId("current-project-status")).toHaveText(
+      `Project: ${projectName}`,
+    );
+    await expect(page.getByTestId("path-stage")).toBeVisible();
+  },
+);
 
 test("offers the first lesson beside Create project until a project exists", async ({
   page,

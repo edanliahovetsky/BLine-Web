@@ -15,6 +15,7 @@
     "validate:bline-lib-io": "vitest run --config vitest.parity.config.ts parity-harness/bline-lib-io.test.ts --testTimeout 360000",
     "test:e2e": "playwright test",
     "test:e2e:beta": "node scripts/test-beta.mjs",
+    "test:e2e:smoke": "playwright test --project=chromium --grep @smoke",
     "test:offline": "npm run build && playwright test --config playwright.offline.config.ts",
     "test:handoff": "playwright test --config playwright.handoff.config.ts",
     "build": "tsc -b && vite build",
@@ -29,7 +30,8 @@
     "release:metadata": "node scripts/release-metadata.mjs",
     "release:validate": "node scripts/validate-release.mjs",
     "pretest:e2e": "node scripts/playwright-directory-upload.mjs",
-    "pretest:e2e:beta": "node scripts/playwright-directory-upload.mjs"
+    "pretest:e2e:beta": "node scripts/playwright-directory-upload.mjs",
+    "pretest:e2e:smoke": "node scripts/playwright-directory-upload.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "2.10.1",

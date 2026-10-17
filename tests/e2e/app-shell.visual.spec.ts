@@ -41,7 +41,7 @@ test.describe("app shell visual baselines", () => {
     await expectVisualSnapshot(page, "start-center.png");
   });
 
-  test("editor elements", async ({ page }) => {
+  test("editor elements", { tag: "@smoke" }, async ({ page }) => {
     await gotoSampleEditor(page);
 
     await expect(

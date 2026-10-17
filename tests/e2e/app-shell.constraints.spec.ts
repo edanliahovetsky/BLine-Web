@@ -66,270 +66,282 @@ test("explains the split icon on keyboard focus and keeps its action available",
   ).toBeVisible();
 });
 
-test("adds edits and deletes ranged constraints", async ({ page }) => {
-  await gotoManualConstraintEditor(page);
-  await openConstraintsTab(page);
-  const shortcut = process.platform === "darwin" ? "Meta" : "Control";
+test(
+  "adds edits and deletes ranged constraints",
+  { tag: "@smoke" },
+  async ({ page }) => {
+    await gotoManualConstraintEditor(page);
+    await openConstraintsTab(page);
+    const shortcut = process.platform === "darwin" ? "Meta" : "Control";
 
-  await page.getByRole("button", { name: "Add constraint" }).click();
-  await page
-    .getByRole("menuitem", { name: "End Translation Tolerance" })
-    .click();
-  await expect(
-    page.getByRole("spinbutton", { name: "End Translation Tolerance" }),
-  ).toHaveValue("0.03");
-  await page
-    .getByRole("button", { name: "Remove End Translation Tolerance" })
-    .click();
-  await expect(
-    page.getByRole("spinbutton", { name: "End Translation Tolerance" }),
-  ).toHaveCount(0);
+    await page.getByRole("button", { name: "Add constraint" }).click();
+    await page
+      .getByRole("menuitem", { name: "End Translation Tolerance" })
+      .click();
+    await expect(
+      page.getByRole("spinbutton", { name: "End Translation Tolerance" }),
+    ).toHaveValue("0.03");
+    await page
+      .getByRole("button", { name: "Remove End Translation Tolerance" })
+      .click();
+    await expect(
+      page.getByRole("spinbutton", { name: "End Translation Tolerance" }),
+    ).toHaveCount(0);
 
-  const addConstraintIcon = page.getByTestId("add-constraint-icon");
-  await expect(addConstraintIcon).toBeVisible();
-  expect((await requiredBox(addConstraintIcon)).width).toBeGreaterThanOrEqual(
-    16,
-  );
+    const addConstraintIcon = page.getByTestId("add-constraint-icon");
+    await expect(addConstraintIcon).toBeVisible();
+    expect((await requiredBox(addConstraintIcon)).width).toBeGreaterThanOrEqual(
+      16,
+    );
 
-  await page
-    .getByTestId("constraint-range-max_velocity_meters_per_sec-0")
-    .click();
-  await page.getByLabel("Delete constraint 1").click();
-  await expect(
-    page.getByTestId("constraint-card-max_velocity_meters_per_sec"),
-  ).toBeVisible();
-  await expect(
-    page.getByTestId("constraint-range-max_velocity_meters_per_sec-0"),
-  ).toHaveCount(0);
-  await expect(
-    page.getByTestId("ranged-constraint-row-max_velocity_meters_per_sec-empty"),
-  ).toBeVisible();
+    await page
+      .getByTestId("constraint-range-max_velocity_meters_per_sec-0")
+      .click();
+    await page.getByLabel("Delete constraint 1").click();
+    await expect(
+      page.getByTestId("constraint-card-max_velocity_meters_per_sec"),
+    ).toBeVisible();
+    await expect(
+      page.getByTestId("constraint-range-max_velocity_meters_per_sec-0"),
+    ).toHaveCount(0);
+    await expect(
+      page.getByTestId(
+        "ranged-constraint-row-max_velocity_meters_per_sec-empty",
+      ),
+    ).toBeVisible();
 
-  await page.getByRole("button", { name: "Add constraint" }).click();
-  await page.getByRole("menuitem", { name: "Max Velocity" }).click();
+    await page.getByRole("button", { name: "Add constraint" }).click();
+    await page.getByRole("menuitem", { name: "Max Velocity" }).click();
 
-  await expect(
-    page.getByTestId("constraint-card-max_velocity_meters_per_sec"),
-  ).toBeVisible();
-  await expect(
-    page.getByTestId("constraint-cell-max_velocity_meters_per_sec-1"),
-  ).toContainText("4.5 m/s");
+    await expect(
+      page.getByTestId("constraint-card-max_velocity_meters_per_sec"),
+    ).toBeVisible();
+    await expect(
+      page.getByTestId("constraint-cell-max_velocity_meters_per_sec-1"),
+    ).toContainText("4.5 m/s");
 
-  await expect(page.getByTestId("ranged-constraint-row-1")).toBeVisible();
-  const addSegmentIcon = page
-    .getByLabel("Add Max Velocity segment")
-    .locator("svg");
-  const deleteSegmentIcon = page
-    .getByLabel("Delete constraint 1")
-    .locator("svg");
-  await expect(
-    page.getByTestId("constraint-range-max_velocity_meters_per_sec-0"),
-  ).toHaveAttribute("aria-keyshortcuts", "Delete Backspace");
-  await expect(page.getByLabel("Delete constraint 1")).toHaveAttribute(
-    "aria-keyshortcuts",
-    "Delete Backspace",
-  );
-  await expect(addSegmentIcon).toBeVisible();
-  await expect(deleteSegmentIcon).toBeVisible();
-  await expect(page.getByLabel("Add Max Velocity segment")).toHaveCSS(
-    "color",
-    "rgb(88, 166, 255)",
-  );
-  await expect(page.getByLabel("Delete constraint 1")).toHaveCSS(
-    "color",
-    "rgb(255, 107, 107)",
-  );
-  expect((await requiredBox(addSegmentIcon)).width).toBeGreaterThan(8);
-  expect((await requiredBox(deleteSegmentIcon)).width).toBeGreaterThan(8);
+    await expect(page.getByTestId("ranged-constraint-row-1")).toBeVisible();
+    const addSegmentIcon = page
+      .getByLabel("Add Max Velocity segment")
+      .locator("svg");
+    const deleteSegmentIcon = page
+      .getByLabel("Delete constraint 1")
+      .locator("svg");
+    await expect(
+      page.getByTestId("constraint-range-max_velocity_meters_per_sec-0"),
+    ).toHaveAttribute("aria-keyshortcuts", "Delete Backspace");
+    await expect(page.getByLabel("Delete constraint 1")).toHaveAttribute(
+      "aria-keyshortcuts",
+      "Delete Backspace",
+    );
+    await expect(addSegmentIcon).toBeVisible();
+    await expect(deleteSegmentIcon).toBeVisible();
+    await expect(page.getByLabel("Add Max Velocity segment")).toHaveCSS(
+      "color",
+      "rgb(88, 166, 255)",
+    );
+    await expect(page.getByLabel("Delete constraint 1")).toHaveCSS(
+      "color",
+      "rgb(255, 107, 107)",
+    );
+    expect((await requiredBox(addSegmentIcon)).width).toBeGreaterThan(8);
+    expect((await requiredBox(deleteSegmentIcon)).width).toBeGreaterThan(8);
 
-  await page
-    .getByTestId("constraint-range-max_velocity_meters_per_sec-0")
-    .click();
-  await page.keyboard.press("Delete");
-  await expect(
-    page.getByTestId("constraint-card-max_velocity_meters_per_sec"),
-  ).toBeVisible();
-  await expect(
-    page.getByTestId("constraint-range-max_velocity_meters_per_sec-0"),
-  ).toHaveCount(0);
-  await expect(
-    page.getByTestId("ranged-constraint-row-max_velocity_meters_per_sec-empty"),
-  ).toBeVisible();
-  await page.keyboard.press(`${shortcut}+Z`);
-  await expect(
-    page.getByTestId("constraint-range-max_velocity_meters_per_sec-0"),
-  ).toBeVisible();
+    await page
+      .getByTestId("constraint-range-max_velocity_meters_per_sec-0")
+      .click();
+    await page.keyboard.press("Delete");
+    await expect(
+      page.getByTestId("constraint-card-max_velocity_meters_per_sec"),
+    ).toBeVisible();
+    await expect(
+      page.getByTestId("constraint-range-max_velocity_meters_per_sec-0"),
+    ).toHaveCount(0);
+    await expect(
+      page.getByTestId(
+        "ranged-constraint-row-max_velocity_meters_per_sec-empty",
+      ),
+    ).toBeVisible();
+    await page.keyboard.press(`${shortcut}+Z`);
+    await expect(
+      page.getByTestId("constraint-range-max_velocity_meters_per_sec-0"),
+    ).toBeVisible();
 
-  const firstConstraintRow = page.getByTestId("ranged-constraint-row-1");
-  const firstConstraintInput = page.getByLabel("Constraint 1 value");
-  const firstConstraintStepper = firstConstraintRow.locator(
-    ".sidebar-number-control",
-  );
-  await expect(firstConstraintStepper).toBeVisible();
-  expect((await requiredBox(firstConstraintStepper)).width).toBeLessThan(125);
-  const increaseConstraint = firstConstraintRow.getByRole("button", {
-    name: "Increase value",
-  });
-  const decreaseConstraint = firstConstraintRow.getByRole("button", {
-    name: "Decrease value",
-  });
-  await expect(increaseConstraint.locator("svg")).toBeVisible();
-  await expect(decreaseConstraint.locator("svg")).toBeVisible();
-  await increaseConstraint.click();
-  await expect(firstConstraintInput).toHaveValue("4.6");
-  await decreaseConstraint.click();
-  await expect(firstConstraintInput).toHaveValue("4.5");
+    const firstConstraintRow = page.getByTestId("ranged-constraint-row-1");
+    const firstConstraintInput = page.getByLabel("Constraint 1 value");
+    const firstConstraintStepper = firstConstraintRow.locator(
+      ".sidebar-number-control",
+    );
+    await expect(firstConstraintStepper).toBeVisible();
+    expect((await requiredBox(firstConstraintStepper)).width).toBeLessThan(125);
+    const increaseConstraint = firstConstraintRow.getByRole("button", {
+      name: "Increase value",
+    });
+    const decreaseConstraint = firstConstraintRow.getByRole("button", {
+      name: "Decrease value",
+    });
+    await expect(increaseConstraint.locator("svg")).toBeVisible();
+    await expect(decreaseConstraint.locator("svg")).toBeVisible();
+    await increaseConstraint.click();
+    await expect(firstConstraintInput).toHaveValue("4.6");
+    await decreaseConstraint.click();
+    await expect(firstConstraintInput).toHaveValue("4.5");
 
-  await firstConstraintInput.fill("");
-  await expect(firstConstraintInput).toHaveValue("");
-  await firstConstraintInput.fill("2.");
-  await expect(firstConstraintInput).toHaveValue("2.");
-  await firstConstraintInput.fill("2.456");
-  await expect(firstConstraintInput).toHaveValue("2.45");
-  await firstConstraintInput.fill("2.4");
-  await expect(
-    page.getByTestId("constraint-cell-max_velocity_meters_per_sec-1"),
-  ).toContainText("2.4 m/s");
+    await firstConstraintInput.fill("");
+    await expect(firstConstraintInput).toHaveValue("");
+    await firstConstraintInput.fill("2.");
+    await expect(firstConstraintInput).toHaveValue("2.");
+    await firstConstraintInput.fill("2.456");
+    await expect(firstConstraintInput).toHaveValue("2.45");
+    await firstConstraintInput.fill("2.4");
+    await expect(
+      page.getByTestId("constraint-cell-max_velocity_meters_per_sec-1"),
+    ).toContainText("2.4 m/s");
 
-  const firstCell = page.getByTestId(
-    "constraint-cell-max_velocity_meters_per_sec-1",
-  );
-  const secondCell = page.getByTestId(
-    "constraint-cell-max_velocity_meters_per_sec-2",
-  );
-  const firstRange = page.getByTestId(
-    "constraint-range-max_velocity_meters_per_sec-0",
-  );
-  const firstBox = await requiredBox(firstCell);
-  const secondBox = await requiredBox(secondCell);
-  await page.mouse.move(
-    firstBox.x + firstBox.width / 2,
-    firstBox.y + firstBox.height - 2,
-  );
-  await page.mouse.down();
-  await page.mouse.move(
-    secondBox.x + secondBox.width / 2,
-    secondBox.y + secondBox.height / 2,
-    {
-      steps: 6,
-    },
-  );
-  await page.mouse.up();
-  await expect(
-    page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2"),
-  ).toContainText("2.4 m/s");
-  await expect(firstRange).toHaveText("2.4 m/s");
-  expect((await requiredBox(firstRange)).height).toBeGreaterThan(
-    firstBox.height * 1.6,
-  );
+    const firstCell = page.getByTestId(
+      "constraint-cell-max_velocity_meters_per_sec-1",
+    );
+    const secondCell = page.getByTestId(
+      "constraint-cell-max_velocity_meters_per_sec-2",
+    );
+    const firstRange = page.getByTestId(
+      "constraint-range-max_velocity_meters_per_sec-0",
+    );
+    const firstBox = await requiredBox(firstCell);
+    const secondBox = await requiredBox(secondCell);
+    await page.mouse.move(
+      firstBox.x + firstBox.width / 2,
+      firstBox.y + firstBox.height - 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      secondBox.x + secondBox.width / 2,
+      secondBox.y + secondBox.height / 2,
+      {
+        steps: 6,
+      },
+    );
+    await page.mouse.up();
+    await expect(
+      page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2"),
+    ).toContainText("2.4 m/s");
+    await expect(firstRange).toHaveText("2.4 m/s");
+    expect((await requiredBox(firstRange)).height).toBeGreaterThan(
+      firstBox.height * 1.6,
+    );
 
-  await page
-    .getByTestId("constraint-card-max_velocity_meters_per_sec")
-    .locator(".constraint-card__header")
-    .click({ position: { x: 1, y: 1 } });
-  const emptyConstraintRow = page.getByTestId(
-    "ranged-constraint-row-max_velocity_meters_per_sec-empty",
-  );
-  await expect(emptyConstraintRow).toBeVisible();
-  // With nothing selected, hide the fields and keep the segment actions available.
-  await expect(
-    emptyConstraintRow.getByText("Select a segment to edit its value."),
-  ).toHaveCount(0);
-  await expect(emptyConstraintRow.getByLabel("Max Velocity value")).toHaveCount(
-    0,
-  );
-  await expect(
-    emptyConstraintRow.getByRole("button", {
-      name: "Delete selected constraint",
-    }),
-  ).toBeDisabled();
-  await expect(
-    emptyConstraintRow.getByRole("button", {
-      name: "Split selected constraint",
-    }),
-  ).toBeDisabled();
-  await expect(
-    emptyConstraintRow.getByRole("button", {
-      name: "Add Max Velocity segment",
-    }),
-  ).toBeVisible();
-  await firstRange.click();
+    await page
+      .getByTestId("constraint-card-max_velocity_meters_per_sec")
+      .locator(".constraint-card__header")
+      .click({ position: { x: 1, y: 1 } });
+    const emptyConstraintRow = page.getByTestId(
+      "ranged-constraint-row-max_velocity_meters_per_sec-empty",
+    );
+    await expect(emptyConstraintRow).toBeVisible();
+    // With nothing selected, hide the fields and keep the segment actions available.
+    await expect(
+      emptyConstraintRow.getByText("Select a segment to edit its value."),
+    ).toHaveCount(0);
+    await expect(
+      emptyConstraintRow.getByLabel("Max Velocity value"),
+    ).toHaveCount(0);
+    await expect(
+      emptyConstraintRow.getByRole("button", {
+        name: "Delete selected constraint",
+      }),
+    ).toBeDisabled();
+    await expect(
+      emptyConstraintRow.getByRole("button", {
+        name: "Split selected constraint",
+      }),
+    ).toBeDisabled();
+    await expect(
+      emptyConstraintRow.getByRole("button", {
+        name: "Add Max Velocity segment",
+      }),
+    ).toBeVisible();
+    await firstRange.click();
 
-  await page.getByRole("button", { name: "Split constraint 1" }).click();
-  await expect(
-    page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2"),
-  ).toContainText("2.4 m/s");
+    await page.getByRole("button", { name: "Split constraint 1" }).click();
+    await expect(
+      page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2"),
+    ).toContainText("2.4 m/s");
 
-  await page.getByLabel("Add Max Velocity segment").click();
-  await expect(
-    page.getByTestId("constraint-cell-max_velocity_meters_per_sec-3"),
-  ).toContainText("4.5 m/s");
+    await page.getByLabel("Add Max Velocity segment").click();
+    await expect(
+      page.getByTestId("constraint-cell-max_velocity_meters_per_sec-3"),
+    ).toContainText("4.5 m/s");
 
-  await page
-    .getByTestId("constraint-range-max_velocity_meters_per_sec-1")
-    .click();
-  await page.getByLabel("Delete constraint 2").click();
-  await expect(
-    page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2"),
-  ).toContainText("Open");
-  await expect(page.getByTestId("save-status")).toContainText(
-    /Autosave pending|Saved/,
-  );
-});
+    await page
+      .getByTestId("constraint-range-max_velocity_meters_per_sec-1")
+      .click();
+    await page.getByLabel("Delete constraint 2").click();
+    await expect(
+      page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2"),
+    ).toContainText("Open");
+    await expect(page.getByTestId("save-status")).toContainText(
+      /Autosave pending|Saved/,
+    );
+  },
+);
 
-test("generates velocity constraints directly and reports their lifecycle", async ({
-  page,
-}) => {
-  await gotoManualConstraintEditor(page);
-  await openConstraintsTab(page);
+test(
+  "generates velocity constraints directly and reports their lifecycle",
+  { tag: "@smoke" },
+  async ({ page }) => {
+    await gotoManualConstraintEditor(page);
+    await openConstraintsTab(page);
 
-  const card = page.getByTestId("constraint-card-max_velocity_meters_per_sec");
-  const status = card.getByRole("status");
-  const generate = card.getByRole("button", {
-    name: "Generate constraints",
-  });
+    const card = page.getByTestId(
+      "constraint-card-max_velocity_meters_per_sec",
+    );
+    const status = card.getByRole("status");
+    const generate = card.getByRole("button", {
+      name: "Generate constraints",
+    });
 
-  await page
-    .getByTestId("constraint-range-max_velocity_meters_per_sec-0")
-    .click();
-  await page.getByLabel("Delete constraint 1").click();
-  await expect(status).toHaveText("Not generated");
-  await generate.click();
-  await expect(status).toHaveText("Up to date");
-  const firstRadius = page.getByTestId("handoff-radius-chip-0");
-  await expect(firstRadius).toBeEnabled();
-  // The manual fixture pins its first radius, so initial generation preserves it.
-  await expect(firstRadius).toHaveClass(/handoff-radius-chip--manual/);
-  await expect(firstRadius.locator(".handoff-radius-chip__value")).toHaveText(
-    "0.4 m",
-  );
-  await firstRadius.click();
-  await page
-    .getByRole("group", { name: "Handoff distance source" })
-    .getByRole("button", { name: "Auto" })
-    .click();
-  await expect(firstRadius).toHaveClass(/handoff-radius-chip--auto/);
-  await expect(firstRadius.locator(".handoff-radius-chip__value")).toHaveText(
-    "0.45 m",
-  );
-  await expect(
-    card.getByRole("button", { name: "Apply", exact: true }),
-  ).toHaveCount(0);
+    await page
+      .getByTestId("constraint-range-max_velocity_meters_per_sec-0")
+      .click();
+    await page.getByLabel("Delete constraint 1").click();
+    await expect(status).toHaveText("Not generated");
+    await generate.click();
+    await expect(status).toHaveText("Up to date");
+    const firstRadius = page.getByTestId("handoff-radius-chip-0");
+    await expect(firstRadius).toBeEnabled();
+    // The manual fixture pins its first radius, so initial generation preserves it.
+    await expect(firstRadius).toHaveClass(/handoff-radius-chip--manual/);
+    await expect(firstRadius.locator(".handoff-radius-chip__value")).toHaveText(
+      "0.4 m",
+    );
+    await firstRadius.click();
+    await page
+      .getByRole("group", { name: "Handoff distance source" })
+      .getByRole("button", { name: "Auto" })
+      .click();
+    await expect(firstRadius).toHaveClass(/handoff-radius-chip--auto/);
+    await expect(firstRadius.locator(".handoff-radius-chip__value")).toHaveText(
+      "0.45 m",
+    );
+    await expect(
+      card.getByRole("button", { name: "Apply", exact: true }),
+    ).toHaveCount(0);
 
-  await page.getByRole("tab", { name: "Elements", exact: true }).click();
-  await page.getByTestId("path-element-row-0").click();
-  const xInput = page.getByLabel("X (m)");
-  await xInput.fill(String(Number(await xInput.inputValue()) + 0.1));
-  await openConstraintsTab(page);
+    await page.getByRole("tab", { name: "Elements", exact: true }).click();
+    await page.getByTestId("path-element-row-0").click();
+    const xInput = page.getByLabel("X (m)");
+    await xInput.fill(String(Number(await xInput.inputValue()) + 0.1));
+    await openConstraintsTab(page);
 
-  // The background sync owns the refresh now; Generate is for the first run.
-  await expect(status).toHaveText("Up to date");
+    // The background sync owns the refresh now; Generate is for the first run.
+    await expect(status).toHaveText("Up to date");
 
-  await card
-    .getByRole("button", { name: "Clear generated constraints" })
-    .click();
-  await expect(status).toHaveText("Not generated");
-});
+    await card
+      .getByRole("button", { name: "Clear generated constraints" })
+      .click();
+    await expect(status).toHaveText("Not generated");
+  },
+);
 
 test("resizes vertical ranges both ways and prevents whole-range overlap", async ({
   page,

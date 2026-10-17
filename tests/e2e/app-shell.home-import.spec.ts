@@ -33,37 +33,41 @@ test("Home import pickers reopen after cancellation @webkit-canvas", async ({
   }
 });
 
-test("imports a project archive from Home @webkit-canvas", async ({ page }) => {
-  await page.goto("/");
-  const start = page.getByTestId("start-center");
-  await start.getByRole("button", { name: "Import", exact: true }).click();
-  const [chooser] = await Promise.all([
-    page.waitForEvent("filechooser"),
-    start
-      .getByRole("button", { name: "Import project archive", exact: true })
-      .click(),
-  ]);
-  await chooser.setFiles({
-    name: "home-import.bline-project.json",
-    mimeType: "application/json",
-    buffer: Buffer.from(
-      JSON.stringify(
-        createBLineProjectArchive(
-          createNamedProject("Imported project", "Opening move"),
-          new Date().toISOString(),
+test(
+  "imports a project archive from Home @webkit-canvas",
+  { tag: "@smoke" },
+  async ({ page }) => {
+    await page.goto("/");
+    const start = page.getByTestId("start-center");
+    await start.getByRole("button", { name: "Import", exact: true }).click();
+    const [chooser] = await Promise.all([
+      page.waitForEvent("filechooser"),
+      start
+        .getByRole("button", { name: "Import project archive", exact: true })
+        .click(),
+    ]);
+    await chooser.setFiles({
+      name: "home-import.bline-project.json",
+      mimeType: "application/json",
+      buffer: Buffer.from(
+        JSON.stringify(
+          createBLineProjectArchive(
+            createNamedProject("Imported project", "Opening move"),
+            new Date().toISOString(),
+          ),
         ),
       ),
-    ),
-  });
-  await expect(start).toHaveCount(0);
-  await expect(page.getByTestId("current-project-status")).not.toHaveText(
-    "Project: No project",
-  );
-  await expect(page.getByTestId("current-path-status")).toContainText(
-    "Opening move",
-  );
-  await expect(page.getByTestId("path-stage")).toBeVisible();
-});
+    });
+    await expect(start).toHaveCount(0);
+    await expect(page.getByTestId("current-project-status")).not.toHaveText(
+      "Project: No project",
+    );
+    await expect(page.getByTestId("current-path-status")).toContainText(
+      "Opening move",
+    );
+    await expect(page.getByTestId("path-stage")).toBeVisible();
+  },
+);
 
 test("imports an autos folder from Home @webkit-canvas", async ({ page }) => {
   const folder = await mkdtemp(join(tmpdir(), "bline-home-import-"));

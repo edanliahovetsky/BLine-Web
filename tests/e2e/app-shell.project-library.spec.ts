@@ -777,36 +777,38 @@ test("browser legacy autos folder import re-exports the clean sidecar tree", asy
   }
 });
 
-test("File export saves the active path and import path round-trips it", async ({
-  page,
-}) => {
-  await installSaveFilePickerSpy(page, { waitForRelease: true });
-  await gotoSampleEditor(page);
+test(
+  "File export saves the active path and import path round-trips it",
+  { tag: "@smoke" },
+  async ({ page }) => {
+    await installSaveFilePickerSpy(page, { waitForRelease: true });
+    await gotoSampleEditor(page);
 
-  await openProjectMenu(page);
-  await page.getByRole("menuitem", { name: "Import / Export" }).click();
-  await page.getByRole("menuitem", { name: "Export Path..." }).click();
+    await openProjectMenu(page);
+    await page.getByRole("menuitem", { name: "Import / Export" }).click();
+    await page.getByRole("menuitem", { name: "Export Path..." }).click();
 
-  await releaseSaveFilePicker(page);
-  await expect.poll(() => savedFileCount(page)).toBe(1);
-  const saved = await savedFile(page, 0);
-  expect(saved.suggestedName).toBe("Sample Path.json");
-  expect(JSON.parse(saved.text)).toMatchObject({
-    path_elements: expect.any(Array),
-  });
+    await releaseSaveFilePicker(page);
+    await expect.poll(() => savedFileCount(page)).toBe(1);
+    const saved = await savedFile(page, 0);
+    expect(saved.suggestedName).toBe("Sample Path.json");
+    expect(JSON.parse(saved.text)).toMatchObject({
+      path_elements: expect.any(Array),
+    });
 
-  const chooserPromise = page.waitForEvent("filechooser");
-  await openProjectMenu(page);
-  await page.getByRole("menuitem", { name: "Import / Export" }).click();
-  await page.getByRole("menuitem", { name: "Import Path..." }).click();
-  const chooser = await chooserPromise;
-  await chooser.setFiles({
-    buffer: Buffer.from(saved.text),
-    mimeType: "application/json",
-    name: "roundtrip-path.json",
-  });
+    const chooserPromise = page.waitForEvent("filechooser");
+    await openProjectMenu(page);
+    await page.getByRole("menuitem", { name: "Import / Export" }).click();
+    await page.getByRole("menuitem", { name: "Import Path..." }).click();
+    const chooser = await chooserPromise;
+    await chooser.setFiles({
+      buffer: Buffer.from(saved.text),
+      mimeType: "application/json",
+      name: "roundtrip-path.json",
+    });
 
-  await expect(page.getByTestId("current-path-status")).toHaveText(
-    "Current Path: roundtrip-path",
-  );
-});
+    await expect(page.getByTestId("current-path-status")).toHaveText(
+      "Current Path: roundtrip-path",
+    );
+  },
+);
