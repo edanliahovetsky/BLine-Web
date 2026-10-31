@@ -2,24 +2,26 @@
 
 ## Branches and releases
 
-BLine Web 1.0 made the 2027 editor the stable release. Stable and preview
-development stay separate:
+BLine Web 1.0 made the 2027 editor the stable release. Every change is tested
+in a beta before it becomes stable:
 
-| Branch       | Purpose                  | Publishing                                                               |
-| ------------ | ------------------------ | ------------------------------------------------------------------------ |
-| `main`       | Stable development (1.x) | Does not deploy the editor                                               |
-| `web-deploy` | Tested stable release    | [bline.run](https://bline.run/) and draft release downloads              |
-| `bline-2027` | Preview development      | Does not deploy the editor                                               |
-| `web-beta`   | Tested preview release   | [beta.bline.run](https://beta.bline.run/) and draft prerelease downloads |
+| Branch       | Purpose                       | Publishing                                                               |
+| ------------ | ----------------------------- | ------------------------------------------------------------------------ |
+| `bline-2027` | Development                   | Does not deploy the editor                                               |
+| `web-beta`   | Beta candidate for testers    | [beta.bline.run](https://beta.bline.run/) and draft prerelease downloads |
+| `main`       | Stable: what bline.run serves | Does not deploy the editor                                               |
+| `web-deploy` | Stable release                | [bline.run](https://bline.run/) and draft release downloads              |
 
-Start changes from the development branch for the intended release line. Keep
-short-lived working branches local unless a remote branch is needed for an
-agreed contribution. Fixes for the stable editor start from `main`; features
-for the next version start from `bline-2027`.
+1. Start every change, fixes included, from `bline-2027`. Keep short-lived
+   working branches local unless a remote branch is needed for an agreed
+   contribution.
+2. Promote a tested `bline-2027` commit to `web-beta` for testers.
+3. When that beta holds up, bring the same changes into `main` and promote
+   `main` to `web-deploy` as the stable release.
 
-Preview work reaches `main` only when it is promoted as a stable release, never
-as housekeeping. After each stable release, merge `main` into `bline-2027` so
-previews carry the released fixes.
+`main` only receives changes that have been through a beta, never routine
+development or housekeeping. After each stable release, merge `main` into
+`bline-2027` so development continues from what bline.run serves.
 
 Promote an exact tested candidate to its publishing branch only when a release
 is intended. A push to `web-deploy` or `web-beta` updates the corresponding
