@@ -53,7 +53,9 @@ test("release scripts agree on beta identity, installer version, and pinned down
     assert.equal(notes.status, 0, notes.stderr);
     const body = readFileSync(notesPath, "utf8");
     assert.ok(body.startsWith(details.releaseName));
-    assert.match(body, /https:\/\/web-beta\.bline-web\.pages\.dev\//);
+    assert.match(body, /\(https:\/\/beta\.bline\.run\/\)/);
+    assert.match(body, /\(https:\/\/bline\.run\/\)/);
+    assert.match(body, /https:\/\/dl\.bline\.run\/d\/web\//);
     assert.equal(
       (
         body.match(

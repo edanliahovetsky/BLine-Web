@@ -430,7 +430,7 @@ export const generatorSettingsTour: TourDefinition = {
       settingsSection: "optimizer",
       resource: {
         label: "Read Tune Your Robot",
-        href: "https://bline-docs.pages.dev/getting-started/tuning/",
+        href: "https://docs.bline.run/getting-started/tuning/",
       },
     }),
   ],

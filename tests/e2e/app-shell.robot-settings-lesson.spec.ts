@@ -329,7 +329,7 @@ for (const viewport of [
           page.getByRole("link", { name: "Read Tune Your Robot" }),
         ).toHaveAttribute(
           "href",
-          "https://bline-docs.pages.dev/getting-started/tuning/",
+          "https://docs.bline.run/getting-started/tuning/",
         );
       } else {
         await next(page, "Register a Lib Key");
