@@ -45,7 +45,10 @@ describe("handoff relay", () => {
     const collected = await handleHandoffRequest(pickup(id), db, id, options);
     expect(collected.status).toBe(200);
     expect(collected.headers.get("Cache-Control")).toBe("no-store");
-    expect(new Uint8Array(await collected.arrayBuffer())).toEqual(large);
+    // Compare bytes directly; a deep equality walk over 3 MB is slow on CI.
+    expect(
+      Buffer.from(await collected.arrayBuffer()).equals(Buffer.from(large)),
+    ).toBe(true);
     expect(db.rows()).toBe(0);
 
     const again = await handleHandoffRequest(pickup(id), db, id, options);

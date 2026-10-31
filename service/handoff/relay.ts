@@ -26,7 +26,9 @@ export const retiredBLineOrigins = [
   "https://web-beta.bline-web.pages.dev",
 ] as const;
 
-const defaultMaxBytes = 64 * 1024 * 1024;
+// The production Function handled 20 MB uploads and failed at 25 MB (error
+// 1101); larger uploads get a clear 413 and the editor suggests exporting.
+const defaultMaxBytes = 16 * 1024 * 1024;
 const defaultTtlMs = 15 * 60 * 1000;
 // D1 rows hold at most 2 MB; base64 grows each chunk by a third.
 const chunkBytes = 1_200_000;
