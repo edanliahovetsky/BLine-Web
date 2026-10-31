@@ -280,13 +280,27 @@ Manual smoke notes live under `tests/manual/`.
 
 ## Release Model
 
-See [Contributing](CONTRIBUTING.md) for how changes move from `bline-2027`
-through a beta to `main`. Betas use the `web-beta` branch; see
-[Beta releases](docs/beta-releases.md) for its build commands and Cloudflare
-preview configuration. The production release process below remains separate.
+Every change is tested in a beta before it becomes stable:
 
-`main` holds the stable release that bline.run serves. It should stay green, but
-it does not deploy to Cloudflare and does not create desktop release artifacts.
+| Branch       | Role                          | Publishes to                              |
+| ------------ | ----------------------------- | ----------------------------------------- |
+| `bline-2027` | Development                   | Nothing                                   |
+| `web-beta`   | Beta candidate for testers    | [beta.bline.run](https://beta.bline.run/) |
+| `main`       | Stable: what bline.run serves | Nothing                                   |
+| `web-deploy` | Stable release                | [bline.run](https://bline.run/)           |
+
+1. Make every change, fixes included, on `bline-2027`.
+2. Push a tested `bline-2027` commit to `web-beta` so testers can try it.
+3. When that beta holds up, bring the same changes into `main`, then push
+   `main` to `web-deploy`.
+4. After each stable release, merge `main` back into `bline-2027` so
+   development continues from what bline.run serves.
+
+`main` never receives untested work or routine development. It should stay
+green, but it does not deploy to Cloudflare and does not create desktop release
+artifacts. [Contributing](CONTRIBUTING.md) covers local worktrees and branch
+hygiene; [Beta releases](docs/beta-releases.md) covers the `web-beta` build
+commands and Cloudflare preview configuration.
 
 `web-deploy` is the public release branch. Cloudflare Pages should be configured
 with:
