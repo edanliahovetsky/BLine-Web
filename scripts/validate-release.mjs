@@ -37,6 +37,7 @@ const checks = [
     VITE_RELEASE_CHANNEL: channel,
     VITE_ENABLE_BUG_REPORT: String(channel === "beta"),
   }),
+  npm("test:handoff"),
   [
     "cargo",
     [
