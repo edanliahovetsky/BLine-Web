@@ -12,6 +12,8 @@
     "tests/unit",
     "tests/e2e",
     "tests/offline",
+    "tests/handoff",
+    "service",
     "parity-harness",
     "scripts/offline-build.ts",
     "scripts/release-config.ts"
