@@ -5,14 +5,14 @@
 Web and desktop editor for creating, tuning, and previewing rapid
 point-to-point autonomous paths for FIRST Robotics Competition.
 
-[![Web Build](https://img.shields.io/badge/web-bline--web.pages.dev-0f766e)](https://bline-web.pages.dev/)
-[![Status](https://img.shields.io/badge/status-alpha-f59e0b)](#project-status)
+[![Web Build](https://img.shields.io/badge/web-bline.run-0f766e)](https://bline.run/)
+[![Status](https://img.shields.io/badge/status-stable-16a34a)](#project-status)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-2563eb)](LICENSE)
 
-[Open the hosted app](https://bline-web.pages.dev/) |
+[Open the hosted app](https://bline.run/) |
 [Desktop downloads](#desktop-downloads) |
 [BLine-Lib](https://github.com/edanliahovetsky/BLine-Lib) |
-[Docs](https://bline-docs.pages.dev/) |
+[Docs](https://docs.bline.run/) |
 [Chief Delphi](https://www.chiefdelphi.com/t/introducing-bline-a-new-rapid-polyline-autonomous-path-planning-suite/509778)
 
 </div>
@@ -40,7 +40,7 @@ paths on the field, tune translation and rotation constraints, preview the
 idealized path simulation, and save/export the same `config.json` plus
 `paths/*.json` files used by the BLine robot library.
 
-The 2027 beta editor starts with an explicit project center instead of
+The editor starts with an explicit project center instead of
 silently creating demo content. In the editor, the field stays central:
 canvas tools live on the left, view controls live on the field, element and
 constraint editing share a tabbed inspector, and save health is summarized in
@@ -55,30 +55,32 @@ observe, and improve this on the robot" faster.
 
 ## Project Status
 
-The published editor is **v0.1.0-alpha.12**, the React/Tauri successor to
-[BLine-GUI](https://github.com/edanliahovetsky/BLine-GUI). The updated UI on
-this branch is the **2027 season preview, v1.0.0-beta.3**.
-The current hosted app and current-editor downloads below remain on alpha.12;
-the beta has its own website and desktop downloads.
+The published editor is **v1.0.0**, the 2027 season editor and React/Tauri
+successor to [BLine-GUI](https://github.com/edanliahovetsky/BLine-GUI). It is
+hosted at [bline.run](https://bline.run/); upcoming versions are previewed at
+[beta.bline.run](https://beta.bline.run/).
+
+BLine Web previously lived at `bline-web.pages.dev` and
+`web-beta.bline-web.pages.dev`. Opening either address once moves the browser
+projects saved there to bline.run and then redirects. Projects already saved on
+bline.run are kept.
 
 ## Desktop Downloads
 
-Current editor (`v0.1.0-alpha.12`):
+Current editor (`v1.0.0`):
 
-- [Windows x64](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/v0.1.0-alpha.12/windows-x64?source=readme-current)
-- [macOS Apple Silicon](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/v0.1.0-alpha.12/macos-aarch64?source=readme-current)
-- [macOS Intel](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/v0.1.0-alpha.12/macos-x64?source=readme-current)
-- [Linux x64](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/v0.1.0-alpha.12/linux-x64?source=readme-current)
+- [Windows x64](https://dl.bline.run/d/web/v1.0.0/windows-x64?source=readme-current)
+- [macOS Apple Silicon](https://dl.bline.run/d/web/v1.0.0/macos-aarch64?source=readme-current)
+- [macOS Intel](https://dl.bline.run/d/web/v1.0.0/macos-x64?source=readme-current)
+- [Linux x64](https://dl.bline.run/d/web/v1.0.0/linux-x64?source=readme-current)
 
-The separate 2027 preview is **BLine Web 2027 Beta 3**
-(`v1.0.0-beta.3`). It installs as **BLine Web Beta** alongside the current app.
-Use its version-specific downloads on
-[GitHub Releases](https://github.com/edanliahovetsky/BLine-Web/releases/tag/v1.0.0-beta.3) or the
-[beta website](https://web-beta.bline-web.pages.dev/). See the
+Beta previews install as **BLine Web Beta** alongside the current app. See the
 [beta release guide](docs/beta-releases.md) for setup, storage separation, and
 bug reporting.
 
-Current-editor fallback: [v0.1.0-alpha.12 on GitHub](https://github.com/edanliahovetsky/BLine-Web/releases/tag/v0.1.0-alpha.12).
+Fallback: [v1.0.0 on GitHub](https://github.com/edanliahovetsky/BLine-Web/releases/tag/v1.0.0).
+The previous editor remains available as
+[v0.1.0-alpha.12](https://github.com/edanliahovetsky/BLine-Web/releases/tag/v0.1.0-alpha.12).
 
 ## For Existing BLine Users
 
@@ -95,7 +97,7 @@ autos/
 In browser mode, projects are stored under the browser origin. Use import/export
 to move projects between machines or into robot project folders.
 
-Useful shortcuts in the 2027 beta editor:
+Useful shortcuts in the editor:
 
 - `Cmd/Ctrl+K` or `F1`: command palette
 - `V`, `1`, `2`, `3`, `4`, `C`: select, waypoint, translation, rotation,
@@ -278,14 +280,12 @@ Manual smoke notes live under `tests/manual/`.
 
 ## Release Model
 
-See [Contributing](CONTRIBUTING.md) for stable and beta branches, release
-promotion, and local worktrees.
+See [Contributing](CONTRIBUTING.md) for the stable and preview branches.
+Previews use the `web-beta` branch; see [Beta releases](docs/beta-releases.md)
+for its build commands and Cloudflare preview configuration. The production
+release process below remains separate.
 
-The opt-in 2027 beta uses the separate `web-beta` branch. See
-[Beta releases](docs/beta-releases.md) for its build commands and Cloudflare
-preview configuration. The production release process below remains separate.
-
-`main` is the stable working branch. It should stay green, but it does not
+`main` is the stable 1.x working branch. It should stay green, but it does not
 deploy to Cloudflare and does not create desktop release artifacts.
 
 `web-deploy` is the public release branch. Cloudflare Pages should be configured
@@ -328,7 +328,7 @@ Use `npm run release:check` to verify that alignment.
 - [BLine-Lib](https://github.com/edanliahovetsky/BLine-Lib): Java robot library.
 - [BLine-GUI](https://github.com/edanliahovetsky/BLine-GUI): original PySide6
   desktop editor.
-- [BLine Docs](https://bline-docs.pages.dev/): user-facing
+- [BLine Docs](https://docs.bline.run/): user-facing
   documentation for the BLine ecosystem.
 - [Chief Delphi thread](https://www.chiefdelphi.com/t/introducing-bline-a-new-rapid-polyline-autonomous-path-planning-suite/509778):
   discussion, feedback, and announcements.

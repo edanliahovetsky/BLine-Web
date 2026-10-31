@@ -28,12 +28,21 @@ Configure the existing Cloudflare Pages project `bline-web` as follows:
 | Preview environment: `VITE_ENABLE_BUG_REPORT`    | `true`                          |
 | Production environment: `VITE_RELEASE_CHANNEL`   | `stable` or unset               |
 | Production environment: `VITE_ENABLE_BUG_REPORT` | `false` or unset                |
+| Production binding: D1 `HANDOFF_DB`              | `bline-handoff`                 |
 
 Preserve other existing project settings. In particular, do not switch the
 production branch to `web-beta` or put the beta flags in production variables.
-The persistent tester URL is <https://web-beta.bline-web.pages.dev/>. Keep using
-that URL across beta updates so the browser retains its workspace and offline
-copy. Individual deployment URLs have separate browser storage.
+The persistent tester URL is <https://beta.bline.run/>. Its DNS record is a
+CNAME to the `web-beta.bline-web.pages.dev` branch alias, and `beta.bline.run`
+is also listed under the project's custom domains so Pages accepts it. Keep
+using that URL across beta updates so the browser retains its workspace and
+offline copy. Individual deployment URLs have separate browser storage.
+
+The earlier `web-beta.bline-web.pages.dev` and `bline-web.pages.dev` addresses
+are retired. When either one opens, the editor moves its browser projects to
+<https://bline.run/> through the one-time drop-off described in
+[`service/README.md`](../service/README.md), then redirects there. The beta
+build still serves both branch addresses; only the retired hostnames hand off.
 
 This is an opt-in public beta, available to people given the link; the branch
 alias and GitHub prerelease do not require an invitation. Use Cloudflare Access

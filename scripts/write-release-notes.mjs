@@ -1,5 +1,9 @@
 import { readFileSync, writeFileSync } from "node:fs";
-import { betaWebsite, releaseMetadata } from "./release-config.ts";
+import {
+  betaWebsite,
+  releaseMetadata,
+  stableWebsite,
+} from "./release-config.ts";
 
 const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
 
@@ -7,8 +11,7 @@ const releaseVersion = readEnv("RELEASE_VERSION") ?? packageJson.version;
 const releaseTag = readEnv("RELEASE_TAG") ?? `v${releaseVersion}`;
 const notesPath = readEnv("RELEASE_NOTES_PATH") ?? "release-notes.md";
 const redirectBaseUrl = trimTrailingSlash(
-  readEnv("DOWNLOAD_REDIRECT_BASE_URL") ??
-    "https://bline-metrics.edan-liahovetsky.workers.dev",
+  readEnv("DOWNLOAD_REDIRECT_BASE_URL") ?? "https://dl.bline.run",
 );
 
 const releaseTagPattern =
@@ -43,7 +46,7 @@ if (releaseTag !== metadata.tag) {
 
 const betaNotes = `${metadata.releaseName} is an opt-in preview of the redesigned editor for the 2027 season.
 
-Try the [beta website](${betaWebsite}) or install **BLine Web Beta** below. The [current website](https://bline-web.pages.dev/) remains available.
+Try the [beta website](${betaWebsite}) or install **BLine Web Beta** below. The [current website](${stableWebsite}) remains available.
 
 ## Try the beta
 

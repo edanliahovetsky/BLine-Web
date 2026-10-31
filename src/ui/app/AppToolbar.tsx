@@ -591,7 +591,7 @@ function HelpHubPopover({
       <div className="help-hub-popover__separator" role="separator" />
       <div className="help-hub-popover__group">
         <a
-          href="https://bline-docs.pages.dev/"
+          href="https://docs.bline.run/"
           target="_blank"
           rel="noreferrer noopener"
           onClick={onClose}

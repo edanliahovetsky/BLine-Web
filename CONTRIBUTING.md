@@ -2,18 +2,24 @@
 
 ## Branches and releases
 
-Keep stable and 2027 beta development separate:
+BLine Web 1.0 made the 2027 editor the stable release. Stable and preview
+development stay separate:
 
-| Branch       | Purpose               | Publishing                                                                          |
-| ------------ | --------------------- | ----------------------------------------------------------------------------------- |
-| `main`       | Stable development    | Does not deploy the editor                                                          |
-| `web-deploy` | Tested stable release | [Stable editor](https://bline-web.pages.dev/) and draft release downloads           |
-| `bline-2027` | 2027 beta development | Does not deploy the editor                                                          |
-| `web-beta`   | Tested beta release   | [Beta editor](https://web-beta.bline-web.pages.dev/) and draft prerelease downloads |
+| Branch       | Purpose                  | Publishing                                                               |
+| ------------ | ------------------------ | ------------------------------------------------------------------------ |
+| `main`       | Stable development (1.x) | Does not deploy the editor                                               |
+| `web-deploy` | Tested stable release    | [bline.run](https://bline.run/) and draft release downloads              |
+| `bline-2027` | Preview development      | Does not deploy the editor                                               |
+| `web-beta`   | Tested preview release   | [beta.bline.run](https://beta.bline.run/) and draft prerelease downloads |
 
 Start changes from the development branch for the intended release line. Keep
 short-lived working branches local unless a remote branch is needed for an
-agreed contribution. Do not merge the beta into stable as part of housekeeping.
+agreed contribution. Fixes for the stable editor start from `main`; features
+for the next version start from `bline-2027`.
+
+Preview work reaches `main` only when it is promoted as a stable release, never
+as housekeeping. After each stable release, merge `main` into `bline-2027` so
+previews carry the released fixes.
 
 Promote an exact tested candidate to its publishing branch only when a release
 is intended. A push to `web-deploy` or `web-beta` updates the corresponding
@@ -22,10 +28,16 @@ artifact jobs pass; publishing that draft is a separate action. Do not use a
 publishing branch for routine development or documentation edits.
 
 Cloudflare's production branch stays `web-deploy`; its preview branch is
-`web-beta`. Keep the beta URL unchanged across releases so testers retain their
-browser projects. See the beta branch's
-[release guide](https://github.com/edanliahovetsky/BLine-Web/blob/bline-2027/docs/beta-releases.md)
-for build flags and preview settings.
+`web-beta`, served at `beta.bline.run`. Keep the beta URL unchanged across
+releases so testers retain their browser projects. Builds from `web-beta` use
+the beta channel, which requires a prerelease version such as `1.1.0-beta.1`.
+See the [beta release guide](docs/beta-releases.md) for build flags and preview
+settings.
+
+The retired `bline-web.pages.dev` and `web-beta.bline-web.pages.dev` addresses
+still serve these branches and move visitors' browser projects to bline.run
+(see [`service/README.md`](service/README.md)). Keep that handoff in both
+release lines while those addresses still receive visitors.
 
 Use a new version and tag for each changed release candidate. Preserve existing
 release tags and downloads. Follow the [release model](README.md#release-model)
@@ -33,8 +45,8 @@ for validation and version metadata.
 
 ## Local checkouts
 
-Use separate worktrees when working on stable and beta concurrently. For example,
-from a clone with `main` checked out:
+Use separate worktrees when working on stable and preview concurrently. For
+example, from a clone with `main` checked out:
 
 ```sh
 git fetch origin

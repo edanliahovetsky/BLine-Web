@@ -11,6 +11,7 @@
     "vitest.parity.config.ts",
     "playwright.config.ts",
     "playwright.offline.config.ts",
+    "playwright.handoff.config.ts",
     "eslint.config.js",
     "scripts/offline-build.ts",
     "scripts/release-config.ts"

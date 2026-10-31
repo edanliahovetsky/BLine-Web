@@ -1,5 +1,6 @@
 export const betaSeason = 2027;
-export const betaWebsite = "https://web-beta.bline-web.pages.dev/";
+export const stableWebsite = "https://bline.run/";
+export const betaWebsite = "https://beta.bline.run/";
 
 export function releaseMetadata(version: string, channel = "stable") {
   if (channel !== "stable" && channel !== "beta") {
