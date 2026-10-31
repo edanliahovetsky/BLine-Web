@@ -279,11 +279,12 @@ Manual smoke notes live under `tests/manual/`.
 
 ## Release Model
 
-The opt-in 2027 beta uses the separate `web-beta` branch. See
-[Beta releases](docs/beta-releases.md) for its build commands and Cloudflare
-preview configuration. The production release process below remains separate.
+See [Contributing](CONTRIBUTING.md) for the stable and preview branches.
+Previews use the `web-beta` branch; see [Beta releases](docs/beta-releases.md)
+for its build commands and Cloudflare preview configuration. The production
+release process below remains separate.
 
-`main` is the stable working branch. It should stay green, but it does not
+`main` is the stable 1.x working branch. It should stay green, but it does not
 deploy to Cloudflare and does not create desktop release artifacts.
 
 `web-deploy` is the public release branch. Cloudflare Pages should be configured
