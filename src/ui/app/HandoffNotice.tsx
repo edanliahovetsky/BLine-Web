@@ -1,8 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  retryHandoffUrl,
-  type HandoffOutcome,
-} from "../../platform/originHandoff";
+import type { HandoffOutcome } from "../../platform/originHandoff";
 
 /** Explains, once, what happened when BLine moved to bline.run. */
 export function HandoffNotice({ outcome }: { outcome: HandoffOutcome }) {
@@ -33,8 +30,8 @@ export function HandoffNotice({ outcome }: { outcome: HandoffOutcome }) {
     message = outcome.from
       ? `${outcome.reason} They are still saved at ${outcome.from}.`
       : outcome.reason;
-    retry = outcome.from
-      ? { label: "Try again", href: retryHandoffUrl(outcome.from) }
+    retry = outcome.retryUrl
+      ? { label: "Try again", href: outcome.retryUrl }
       : null;
   } else {
     title = "BLine moved to bline.run";

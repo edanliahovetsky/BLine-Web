@@ -25,7 +25,12 @@ export type HandoffOutcome =
   | { kind: "none" }
   | { kind: "source-failed"; reason: string }
   | { kind: "arrived"; from: string }
-  | { kind: "arrival-failed"; from: string | null; reason: string };
+  | {
+      kind: "arrival-failed";
+      from: string | null;
+      retryUrl: string | null;
+      reason: string;
+    };
 
 export interface HandoffSnapshot {
   format: typeof format;
@@ -92,7 +97,7 @@ async function leaveRetiredOrigin(): Promise<HandoffOutcome> {
     writeStorage(handoffMovedKey, new Date().toISOString());
     const fragment = new URLSearchParams({
       [fragmentKey]: id,
-      from: location.host,
+      from: location.origin,
     });
     return redirect(`${destination}#${fragment}`);
   } catch (error) {
@@ -107,9 +112,10 @@ async function collectArrival(): Promise<HandoffOutcome> {
   const fragment = new URLSearchParams(location.hash.slice(1));
   const id = fragment.get(fragmentKey);
   if (!id) return { kind: "none" };
-  const fromHost = fragment.get("from");
+  // Only link back to a known retired origin, never one named by the URL.
+  const source = parseOrigin(fragment.get("from"));
   const from =
-    fromHost && handoffSourceHosts.includes(fromHost) ? fromHost : null;
+    source && handoffSourceHosts.includes(source.host) ? source : null;
   history.replaceState(history.state, "", location.pathname + location.search);
 
   try {
@@ -128,19 +134,26 @@ async function collectArrival(): Promise<HandoffOutcome> {
     );
     await restoreDatabases(snapshot.databases);
     mergeLocalStorage(window.localStorage, snapshot.localStorage);
-    return { kind: "arrived", from: from ?? "the previous BLine address" };
+    return {
+      kind: "arrived",
+      from: from?.host ?? "the previous BLine address",
+    };
   } catch (error) {
     return {
       kind: "arrival-failed",
-      from,
+      from: from?.host ?? null,
+      retryUrl: from ? `${from.origin}/?${retryParam}` : null,
       reason: error instanceof Error ? error.message : String(error),
     };
   }
 }
 
-/** Link back to a retired origin so it can send its projects again. */
-export function retryHandoffUrl(from: string): string {
-  return `https://${from}/?${retryParam}`;
+function parseOrigin(value: string | null): URL | null {
+  try {
+    return value ? new URL(value) : null;
+  } catch {
+    return null;
+  }
 }
 
 function redirect(url: string): Promise<never> {
@@ -238,7 +251,8 @@ export function encodeValue(value: unknown): unknown {
 
 export function decodeValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(decodeValue);
-  if (!value || typeof value !== "object") return value;
+  // Only JSON objects carry tags; decoded bytes, Blobs and Dates stay as they are.
+  if (!value || Object.getPrototypeOf(value) !== Object.prototype) return value;
   const record = value as Record<string, unknown>;
   if (typeof record[bytesTag] === "string") {
     const bytes = fromBase64(record[bytesTag]);
@@ -382,11 +396,11 @@ async function restoreDatabases(dumps: readonly DatabaseDump[]): Promise<void> {
         const transaction = db.transaction(store.name, "readwrite");
         const target = transaction.objectStore(store.name);
         for (const record of store.records) {
-          const value = decodeValue(record.value);
+          const value = record.value;
           // Keep what bline.run already has: add() refuses existing keys.
           const request =
             store.keyPath === null
-              ? target.add(value, decodeValue(record.key) as IDBValidKey)
+              ? target.add(value, record.key as IDBValidKey)
               : target.add(value);
           request.onerror = (event) => {
             event.preventDefault();

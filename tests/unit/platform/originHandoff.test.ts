@@ -90,6 +90,16 @@ describe("origin handoff", () => {
     expect(value.updatedAt.toISOString()).toBe("2026-10-31T12:00:00.000Z");
   });
 
+  it("leaves already decoded bytes and dates untouched", () => {
+    const bytes = new Uint8Array([1, 2, 3]).buffer;
+    const decoded = decodeValue(
+      decodeValue(encodeValue({ bytes, at: new Date(0) })),
+    ) as { bytes: ArrayBuffer; at: Date };
+
+    expect(new Uint8Array(decoded.bytes)).toEqual(new Uint8Array([1, 2, 3]));
+    expect(decoded.at.getTime()).toBe(0);
+  });
+
   it("decodes field images stored as Blobs", async () => {
     const decoded = decodeValue(
       encodeValue({

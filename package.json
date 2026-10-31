@@ -16,6 +16,7 @@
     "test:e2e": "playwright test",
     "test:e2e:beta": "node scripts/test-beta.mjs",
     "test:offline": "npm run build && playwright test --config playwright.offline.config.ts",
+    "test:handoff": "playwright test --config playwright.handoff.config.ts",
     "build": "tsc -b && vite build",
     "release:check": "node scripts/release-check.mjs",
     "release:notes": "node scripts/write-release-notes.mjs",

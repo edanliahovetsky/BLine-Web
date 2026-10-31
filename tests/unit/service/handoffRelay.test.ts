@@ -1,55 +1,9 @@
-import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
   handleHandoffRequest,
   retiredBLineOrigins,
-  type HandoffDatabase,
-  type HandoffStatement,
 } from "../../../service/handoff/relay";
-
-/** Runs the relay's real SQL against SQLite, standing in for D1. */
-function localD1(): HandoffDatabase & { rows(): number } {
-  const sqlite = new DatabaseSync(":memory:");
-  const statement = (
-    query: string,
-    values: SQLInputValue[] = [],
-  ): HandoffStatement => ({
-    bind: (...next) => statement(query, next as SQLInputValue[]),
-    run: async () => sqlite.prepare(query).run(...values),
-    all: async <T>() => ({
-      results: sqlite.prepare(query).all(...values) as T[],
-    }),
-  });
-  return {
-    prepare: (query) => statement(query),
-    batch: async (statements) => {
-      sqlite.exec("BEGIN");
-      try {
-        for (const next of statements) await next.run();
-        sqlite.exec("COMMIT");
-      } catch (error) {
-        sqlite.exec("ROLLBACK");
-        throw error;
-      }
-    },
-    rows: () =>
-      (
-        sqlite
-          .prepare(
-            "SELECT count(*) AS n FROM sqlite_master WHERE name = 'handoff_chunks'",
-          )
-          .get() as { n: number }
-      ).n
-        ? (
-            sqlite
-              .prepare("SELECT count(*) AS n FROM handoff_chunks")
-              .get() as {
-              n: number;
-            }
-          ).n
-        : 0,
-  };
-}
+import { localD1 } from "../support/localD1";
 
 const source = retiredBLineOrigins[0];
 const target = "https://bline.run";
