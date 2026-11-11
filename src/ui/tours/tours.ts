@@ -4,6 +4,7 @@ import {
   isRotationTarget,
   isTranslationTarget,
   isWaypoint,
+  type PathElement,
   type PathModel,
 } from "../../core/model/path";
 import {
@@ -11,6 +12,7 @@ import {
   projectStore,
 } from "../../state/projectStore";
 import { selectionStore } from "../../state/selectionStore";
+import { elementTypeLabel } from "../sidebar/sidebarCommands";
 import {
   tourStore,
   type TourAction,
@@ -269,6 +271,33 @@ const lastWaypoint = (path: PathModel) =>
     (last, element, index) => (isWaypoint(element) ? index : last),
     -1,
   );
+/** The point added this step: the first row that differs from the start. */
+const addedPointIndex = (path: PathModel) => {
+  const before = baselinePath?.path_elements ?? [];
+  if (path.path_elements.length <= before.length) return null;
+  const intent = (element: PathElement | undefined) =>
+    element
+      ? tourPathIntent({
+          ...path,
+          path_elements: [element],
+          ranged_constraints: [],
+        })
+      : null;
+  const index = path.path_elements.findIndex(
+    (element, i) => intent(element) !== intent(before[i]),
+  );
+  return index >= 0 ? index : null;
+};
+/** Show me's stop for removing that point: its row's red − button. */
+const removeAddedPoint = {
+  target: () => {
+    const path = currentPath();
+    const index = path ? addedPointIndex(path) : null;
+    return path && index !== null
+      ? `label:Remove ${elementTypeLabel(path.path_elements[index])} ${index + 1}`
+      : "lesson-element";
+  },
+};
 /** New points go just before End, whatever is selected. */
 const beforeEnd = (path: PathModel) => {
   const end = lastAnchor(path);
@@ -525,7 +554,7 @@ export const fundamentalsTour: TourDefinition = {
     {
       title: "Fix a mistake",
       task: "Add a translation target, then remove it",
-      body: "Select it and press Delete, or press ⌘Z.",
+      body: "Click its red − in Elements, or press Delete or ⌘Z.",
       why: "Placing returns you to Select, so a stray click won’t add more points. Undo (⌘Z or Ctrl+Z) reverses any edit, including a deletion.",
       target: "tool-translation",
       visible: ["path-canvas", "simulation-transport"],
@@ -550,7 +579,10 @@ export const fundamentalsTour: TourDefinition = {
         },
         {
           label: "Extra point removed",
-          showMe: ["lesson-element"],
+          showMe: [
+            { target: "inspector-toggle", done: () => sidebarOpen() },
+            removeAddedPoint,
+          ],
           check: () => feedback(extraPointRemoved(), "", ""),
         },
       ],

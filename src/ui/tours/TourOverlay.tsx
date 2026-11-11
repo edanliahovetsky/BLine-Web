@@ -109,6 +109,8 @@ export function TourOverlay({
   const scrolledStop = useRef<string | null>(null);
   const capturedStepTokens = useRef(new Set<string>());
   const [rect, setRect] = useState<TourRect | null>(null);
+  // What the spotlight is on, so it pulses again whenever that changes.
+  const [rectTarget, setRectTarget] = useState<string | null>(null);
   const [visibleHoles, setVisibleHoles] = useState<TourRect[]>([]);
   const [feedbackState, setFeedback] = useState<{
     token: string;
@@ -121,6 +123,8 @@ export function TourOverlay({
   const [showMeState, setShowMeState] = useState<{
     token: string;
     index: number;
+    /** Restarts Show me's pointer on each press. */
+    press?: number;
   } | null>(null);
   // Show me for steps that follow progress: once started, it keeps pointing
   // at the next action until the step is done. Replays restart the pointer.
@@ -238,7 +242,7 @@ export function TourOverlay({
           replay: guiding ? (guide?.replay ?? 0) + 1 : 0,
         });
       else if (showMeTargets.length > 0)
-        setShowMeState({ token: stepToken, index: 0 });
+        setShowMeState({ token: stepToken, index: 0, press: Date.now() });
     };
   });
 
@@ -392,6 +396,13 @@ export function TourOverlay({
                 : stepTarget && stepTarget !== "path-canvas"
                   ? measureTour(stepTarget)
                   : null)),
+      );
+      setRectTarget(
+        assessment?.complete
+          ? null
+          : stopRect
+            ? stop!.target
+            : (showMeTarget ?? stepTarget),
       );
       setVisibleHoles(measureTargets(visibleToken));
       setPlacement((previous) => {
@@ -890,11 +901,21 @@ export function TourOverlay({
           }}
         >
           <span
-            key={`${stepToken}:${activeStop?.target ?? showMeIndex ?? "step"}:${guiding ? (guide?.replay ?? 0) : ""}`}
+            key={`${stepToken}:${activeStop?.target ?? rectTarget ?? "step"}:${showMeIndex ?? ""}:${guiding ? (guide?.replay ?? 0) : ""}`}
             className="tour-spotlight__pulse"
           />
         </div>
       )}
+      {!guided && showMeTarget && rect && showMeState?.press ? (
+        <TourGhostPointer
+          key={`${stepToken}:tour:${showMeState.press}`}
+          stop={showMeTarget}
+          to={{
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+          }}
+        />
+      ) : null}
       {activeStop && guiding && (
         <TourGhostPointer
           key={`${stepToken}:${guide?.replay ?? 0}`}
@@ -1034,7 +1055,11 @@ export function TourOverlay({
                             token: stepToken,
                             replay: guiding ? (guide?.replay ?? 0) + 1 : 0,
                           })
-                        : setShowMeState({ token: stepToken, index: 0 })
+                        : setShowMeState({
+                            token: stepToken,
+                            index: 0,
+                            press: Date.now(),
+                          })
                     }
                   >
                     Show me

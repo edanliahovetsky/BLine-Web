@@ -2013,6 +2013,95 @@ test("organizes an auto and test project into a new Path Group @webkit-canvas", 
   await finish(page);
 });
 
+test("Show me points at the extra point's remove button in Fix a mistake", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await gotoSampleEditor(page);
+  await openLesson(page, "BLine Fundamentals");
+  await heading(page, "See a complete path");
+  const next = () =>
+    page.evaluate(async () => {
+      const { tourStore }: typeof import("../../src/ui/tours/tourStore") =
+        await import(/* @vite-ignore */ "/src/ui/tours/tourStore.ts" as string);
+      tourStore.getState().next(6);
+    });
+  await next();
+  await place(page, "Waypoint", 5, 2);
+  await place(page, "Waypoint", 15, 2.5);
+  await next();
+  await next();
+  await heading(page, "Fix a mistake");
+  await place(page, "Translation", 10, 4.5);
+  await page
+    .getByTestId("tour-card")
+    .getByRole("button", { name: "Show me", exact: true })
+    .click();
+  const remove = page.getByRole("button", {
+    name: "Remove Translation 2",
+    exact: true,
+  });
+  const spotlight = page.getByTestId("tour-spotlight");
+  await expect
+    .poll(async () => {
+      const [a, b] = await Promise.all([
+        remove.boundingBox(),
+        spotlight.boundingBox(),
+      ]);
+      return (
+        !!a &&
+        !!b &&
+        Math.abs(a.x + a.width / 2 - (b.x + b.width / 2)) < 4 &&
+        Math.abs(a.y + a.height / 2 - (b.y + b.height / 2)) < 4
+      );
+    })
+    .toBe(true);
+});
+
+test("the spotlight pulses again when it moves to the next action", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await gotoSampleEditor(page);
+  await openLesson(page, "BLine Fundamentals");
+  await heading(page, "See a complete path");
+  await page.evaluate(async () => {
+    const { tourStore }: typeof import("../../src/ui/tours/tourStore") =
+      await import(/* @vite-ignore */ "/src/ui/tours/tourStore.ts" as string);
+    tourStore.getState().next(6);
+  });
+  await heading(page, "Place Start and End");
+  const pulse = page.locator(".tour-spotlight__pulse");
+  await expect(pulse).toHaveCount(1);
+  await pulse.evaluate((element) => element.setAttribute("data-seen", ""));
+  // Choosing the tool moves the spotlight on to the Start zone.
+  await page
+    .getByRole("button", { name: "Waypoint tool", exact: true })
+    .click();
+  await expect(page.locator(".tour-spotlight__pulse[data-seen]")).toHaveCount(
+    0,
+  );
+  await expect(pulse).toHaveCount(1);
+});
+
+test("Show me sends its pointer to each area in an overview step", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await gotoSampleEditor(page);
+  await openLesson(page, "Getting Started");
+  await heading(page, "The editor at a glance");
+  await page
+    .getByTestId("tour-card")
+    .getByRole("button", { name: "Show me", exact: true })
+    .click();
+  await expect(page.getByTestId("tour-ghost")).toHaveCount(1);
+  await expect(page.getByTestId("tour-spotlight")).toHaveAttribute(
+    "data-show-me",
+    "tool-rail",
+  );
+});
+
 test("Fundamentals places a new point before End even with nothing selected", async ({
   page,
 }) => {
