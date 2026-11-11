@@ -7323,10 +7323,21 @@ body.is-resizing-inspector * {
   .workspace,
   .workspace.is-settings-open,
   .workspace.is-navigator-open {
+    --stacked-canvas-height: max(260px, min(calc(50vw + 150px), 62%));
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows:
-      minmax(260px, min(calc(50vw + 150px), 62%))
-      minmax(0, 1fr);
+    grid-template-rows: var(--stacked-canvas-height) minmax(0, 1fr);
+  }
+
+  /* Settings has a header, section tabs and Save/Cancel around its rows, so
+     it takes a larger share of the height than the inspector does. */
+  .workspace.is-settings-open {
+    --stacked-canvas-height: max(220px, min(calc(50vw + 90px), 46%));
+  }
+
+  /* Pinned above the rows, the robot preview would cover most of a short
+     stacked panel; let it scroll away with them instead. */
+  .config-dialog__robot-preview {
+    position: static;
   }
 
   .workspace.is-inspector-collapsed:not(.is-settings-open):not(
@@ -7375,7 +7386,7 @@ body.is-resizing-inspector * {
      panel's own buttons in the lower row. */
   .workspace .workspace-status--floating,
   .workspace.is-settings-open .workspace-status--floating {
-    top: calc(max(260px, min(50vw + 150px, 62%)) - 52px);
+    top: calc(var(--stacked-canvas-height) - 52px);
     right: 12px;
     bottom: auto;
   }

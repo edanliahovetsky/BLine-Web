@@ -1437,15 +1437,8 @@ test("scrolls element properties only on genuinely short viewports @webkit-canva
     { width: 1200, height: 900 },
     { width: 1200, height: 550 },
     { width: 820, height: 550 },
-    { width: 360, height: 650 },
   ]) {
     await page.setViewportSize(viewport);
-    if (viewport.width === 360) {
-      await page
-        .getByRole("dialog", { name: "Mobile support warning" })
-        .getByRole("button", { name: "Continue" })
-        .click();
-    }
     await expect
       .poll(async () => {
         const metrics = await scrollMetrics();
@@ -1480,13 +1473,28 @@ test("scrolls element properties only on genuinely short viewports @webkit-canva
     await expect(page.getByLabel("Profiled Rotation")).toBeInViewport();
   }
 
-  await page.setViewportSize({ width: 1200, height: 430 });
-  await expect
-    .poll(async () => {
-      const constrained = await scrollMetrics();
-      return constrained.scrollHeight - constrained.clientHeight;
-    })
-    .toBeGreaterThan(1);
+  // A short window, and a phone where the inspector stacks under the canvas,
+  // leave the properties too little height, so they scroll.
+  for (const viewport of [
+    { width: 1200, height: 430 },
+    { width: 360, height: 650 },
+  ]) {
+    await page.setViewportSize(viewport);
+    if (viewport.width === 360) {
+      await page
+        .getByRole("dialog", { name: "Mobile support warning" })
+        .getByRole("button", { name: "Continue" })
+        .click();
+    }
+    await expect
+      .poll(async () => {
+        const constrained = await scrollMetrics();
+        return constrained.scrollHeight - constrained.clientHeight;
+      })
+      .toBeGreaterThan(1);
+    const metrics = await scrollMetrics();
+    expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth + 1);
+  }
 });
 
 test("gives the element list the panel height the properties leave over", async ({

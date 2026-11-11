@@ -355,7 +355,10 @@ test("opens a saved project from the mobile project list", async ({ page }) => {
   const firstPath = await currentPathName(page);
 
   await createNewProject(page);
-  await page.getByRole("button", { name: "Toggle inspector" }).click();
+  // A tall phone window starts with the inspector open below the canvas.
+  await expect(
+    page.getByRole("button", { name: "Toggle inspector" }),
+  ).toHaveAttribute("aria-expanded", "true");
   await page.getByRole("button", { name: "Add element" }).click();
   await page.getByRole("menuitem", { name: "Waypoint" }).click();
   await page.getByTestId("path-element-row-0").click();
