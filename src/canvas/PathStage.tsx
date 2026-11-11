@@ -133,7 +133,10 @@ import { robotSizeFromConfig } from "./robotFootprint";
 import { useCanvasInteractionActivity } from "./hooks/useCanvasInteractionActivity";
 import type { CurveAuthoringPreview, CurveToolSession } from "./curveAuthoring";
 import { readFieldBackgroundImage } from "../userData";
-import { TourFieldComparison } from "../ui/tours/TourFieldComparison";
+import {
+  TourFieldComparison,
+  TourPathCues,
+} from "../ui/tours/TourFieldComparison";
 import { tourStore, type TourMarker } from "../ui/tours/tourStore";
 import { findTour } from "../ui/tours/tours";
 import {
@@ -2502,6 +2505,9 @@ export function PathStage({
             onUnlink={unlinkContextElement}
           />
         ) : null}
+        {activeTourId && activePath && (
+          <TourPathCues viewport={viewport} path={activePath.path} />
+        )}
         {activeTourId && activePath && simulationResult && (
           <TourFieldComparison
             viewport={viewport}

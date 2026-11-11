@@ -15,7 +15,12 @@ export function observedTourCondition(condition: () => boolean): () => boolean {
 export function assessTourStep(step: TourStep): TourFeedback {
   const items = step.checks?.map(({ label, check }) => {
     const result = check();
-    return { label, complete: result.complete, hint: result.message };
+    return {
+      label,
+      complete: result.complete,
+      hint: result.message,
+      showMe: result.complete ? undefined : result.showMe,
+    };
   });
   const overall = step.check?.() ?? { complete: true, message: "" };
   if (!items) return overall;
@@ -28,7 +33,9 @@ export function assessTourStep(step: TourStep): TourFeedback {
 }
 
 export function tourInteractionTargets(step: TourStep): readonly string[] {
-  const targets = [...(step.interact ?? [])];
+  // Undo and Redo are always a repair route, like ⌘Z, and near-miss Show me
+  // points at Undo.
+  const targets = [...(step.interact ?? []), "history-undo", "history-redo"];
   if (targets.includes("max-velocity-card")) targets.push("constraint-popout");
   if (targets.includes("settings-event-triggers"))
     targets.push("event-key-menu");

@@ -28,7 +28,11 @@ export function nextShowMeStop(
 ): (TourPointer & { target: string }) | null {
   if (assessment.complete) return null;
   const unmet = assessment.items?.findIndex((item) => !item.complete) ?? -1;
+  // A near miss shows how to fix it, not the route to do the task afresh.
+  const nearMiss =
+    unmet >= 0 ? assessment.items?.[unmet]?.showMe : assessment.showMe;
   const route =
+    nearMiss ??
     (unmet >= 0 ? step.checks?.[unmet]?.showMe : undefined) ??
     step.showMe ??
     [];

@@ -25,12 +25,19 @@ export interface TourFeedback {
   message: string;
   /** Live results for a step's named sub-checks, in checklist order. */
   items?: readonly TourCheckResult[];
+  /**
+   * Where Show me points while this message is a near miss, so it shows how
+   * to fix the mistake the message names instead of the usual route.
+   */
+  showMe?: TourShowMe;
 }
 export interface TourCheckResult {
   label: string;
   complete: boolean;
   /** What to fix, shown under an unmet requirement. */
   hint: string;
+  /** Show me's stops for that fix, when the hint is a near miss. */
+  showMe?: TourShowMe;
 }
 /** One named requirement of a step that asks for several things. */
 export interface TourSubCheck {

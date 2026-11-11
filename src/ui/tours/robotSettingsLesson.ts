@@ -18,7 +18,9 @@ import {
   feedback,
   firstSeen,
   withEventKeyCaseHint,
-  wrongStretchHint,
+  wrongStretch,
+  strayEventIndex,
+  feedbackOr,
 } from "./tourChecks";
 import { createEventLessonPath } from "./courseScenarios";
 import { observedTourCondition } from "./tourInteraction";
@@ -181,9 +183,17 @@ function addEvent(key: string, segment: 1 | 2, ratio: number): TourStep {
           "lesson-segment",
         ],
         check: () =>
-          feedback(
+          feedbackOr(
             stretchEvents(segment).length > 0,
-            eventCount() > segment - 1 ? wrongStretchHint(between) : "",
+            eventCount() > segment - 1
+              ? wrongStretch(
+                  between,
+                  strayEventIndex(
+                    currentPath()!,
+                    stretch(currentPath()!, segment),
+                  ),
+                )
+              : null,
             "",
           ),
       },
@@ -224,10 +234,25 @@ function addEvent(key: string, segment: 1 | 2, ratio: number): TourStep {
       },
     ],
     check: () =>
-      feedback(
+      feedbackOr(
         eventPlaced(key, segment, ratio) &&
           (segment === 1 || eventPlaced("startIntake", 1, 0.3)),
-        segment === 2 ? "Keep `startIntake` at 0.3 on the first stretch." : "",
+        segment === 2
+          ? {
+              message: "Keep `startIntake` at 0.3 on the first stretch.",
+              showMe: [
+                ...showProperties((path) => {
+                  const index = path.path_elements.findIndex(
+                    (element) =>
+                      isEventTrigger(element) &&
+                      element.lib_key.trim() === "startIntake",
+                  );
+                  return index >= 0 ? index : null;
+                }),
+                "lesson-event-pos",
+              ],
+            }
+          : null,
         `${key} is ready.`,
       ),
   });
@@ -360,12 +385,23 @@ export const robotSettingsTour: TourDefinition = {
             list === "show_on_event_keys"
               ? protrusions.hide_on_event_keys
               : protrusions.show_on_event_keys;
+          const otherList = list === "show_on_event_keys" ? "hide" : "show";
+          const otherRow = other.indexOf(key);
           return withEventKeyCaseHint(
-            feedback(
+            feedbackOr(
               protrusions[list].includes(key) && !other.includes(key),
-              other.includes(key)
-                ? `\`${key}\` is on the ${list === "show_on_event_keys" ? "Hide" : "Show"} list. Remove it there.`
-                : "",
+              otherRow >= 0
+                ? {
+                    message: `\`${key}\` is on the ${otherList === "hide" ? "Hide" : "Show"} list. Remove it there.`,
+                    showMe: [
+                      {
+                        target: `label:Event trigger actions for ${otherList} key ${otherRow + 1}`,
+                        done: () => shown('[role="menu"]'),
+                      },
+                      "text:Remove",
+                    ],
+                  }
+                : null,
               "",
             ),
             protrusions[list],

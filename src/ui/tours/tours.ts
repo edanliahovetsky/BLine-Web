@@ -32,8 +32,12 @@ import {
   checkPlan,
   eventPosHint,
   feedback,
+  feedbackOr,
+  type NearMiss,
+  undoStop,
   withEventKeyCaseHint,
-  wrongStretchHint,
+  wrongStretch,
+  strayEventIndex,
 } from "./tourChecks";
 import { settingsTours } from "./robotSettingsLesson";
 import { advancedTours, importExportTour } from "./supplementalLessons";
@@ -304,18 +308,26 @@ const beforeEnd = (path: PathModel) => {
   return end > 0 ? end : null;
 };
 /** A translation target placed or dragged after the End waypoint. */
-const afterEndHint = (path: PathModel) => {
+const afterEnd = (path: PathModel): NearMiss | null => {
   const target = path.path_elements.findIndex(isTranslationTarget);
   const end = lastWaypoint(path);
   return target > end && end >= 0
-    ? "That point is after your End waypoint, so the robot drives through the obstacle first. Press ⌘Z or Ctrl+Z, then place it again."
-    : "";
+    ? {
+        message:
+          "That point is after your End waypoint, so the robot drives through the obstacle first. Press ⌘Z or Ctrl+Z, then place it again.",
+        showMe: [undoStop],
+      }
+    : null;
 };
 /** A near miss for building steps: Start or End was deleted along the way. */
-const lostWaypointHint = () =>
+const lostWaypoint = (): NearMiss | null =>
   (currentPath()?.path_elements.filter(isWaypoint).length ?? 2) < 2
-    ? "That removed Start or End. Press ⌘Z or Ctrl+Z, or choose Restart lesson in the ⋯ menu."
-    : "";
+    ? {
+        message:
+          "That removed Start or End. Press ⌘Z or Ctrl+Z, or choose Restart lesson in the ⋯ menu.",
+        showMe: [undoStop],
+      }
+    : null;
 const played = {
   label: "Played it",
   showMe: ["transport-play"],
@@ -326,6 +338,11 @@ const chooseTool = (tool: string) => ({
   target: `tool-${tool}`,
   done: () => shown(`[data-tour="tool-${tool}"][aria-pressed="true"]`),
 });
+/** Show me for a drag: Select, then the point, with where it goes outlined. */
+const dragInto = (index: number, zone: string) => [
+  chooseTool("select"),
+  { target: `lesson-element-${index}`, echo: zone },
+];
 const stopIntakePosHint = eventPosHint();
 const indexOrNull = (index: number) => (index >= 0 ? index : null);
 
@@ -491,13 +508,16 @@ export const fundamentalsTour: TourDefinition = {
           label: "Waypoint in Start",
           showMe: [chooseTool("waypoint"), "lesson-start-zone"],
           check: outcome((path) =>
-            feedback(
+            feedbackOr(
               path.path_elements.length > 0 &&
                 isWaypoint(path.path_elements[0]) &&
                 near(anchorPositions(path)[0], mission.start),
               path.path_elements.length && waypointIn(path, mission.start) < 0
-                ? "Drag the first waypoint into the Start zone."
-                : "",
+                ? {
+                    message: "Drag the first waypoint into the Start zone.",
+                    showMe: dragInto(0, "lesson-start-zone"),
+                  }
+                : null,
               "",
             ),
           ),
@@ -507,14 +527,21 @@ export const fundamentalsTour: TourDefinition = {
           showMe: [chooseTool("waypoint"), "lesson-goal-zone"],
           check: outcome((path) => {
             const count = path.path_elements.filter(isWaypoint).length;
-            return feedback(
+            return feedbackOr(
               count === 2 &&
                 near(anchorPositions(path).at(-1), mission.delivery),
               count > 2
-                ? "That’s an extra waypoint. Press ⌘Z or Ctrl+Z to undo it."
+                ? {
+                    message:
+                      "That’s an extra waypoint. Press ⌘Z or Ctrl+Z to undo it.",
+                    showMe: [undoStop],
+                  }
                 : count === 2
-                  ? "Drag the second waypoint into the End zone."
-                  : "",
+                  ? {
+                      message: "Drag the second waypoint into the End zone.",
+                      showMe: dragInto(lastWaypoint(path), "lesson-goal-zone"),
+                    }
+                  : null,
               "",
             );
           }),
@@ -571,9 +598,9 @@ export const fundamentalsTour: TourDefinition = {
           label: "Extra point added",
           showMe: [chooseTool("translation"), "lesson-segment"],
           check: () =>
-            feedback(
+            feedbackOr(
               extraPointAdded(),
-              extraPointAdded() ? "" : lostWaypointHint(),
+              extraPointAdded() ? null : lostWaypoint(),
               "",
             ),
         },
@@ -608,12 +635,16 @@ export const fundamentalsTour: TourDefinition = {
           label: "Translation target added",
           showMe: [chooseTool("translation"), "lesson-segment"],
           check: outcome((path) =>
-            feedback(
+            feedbackOr(
               path.path_elements.some(isTranslationTarget),
-              lostWaypointHint() ||
+              lostWaypoint() ??
                 (path.path_elements.filter(isWaypoint).length > 2
-                  ? "That’s a waypoint. Press ⌘Z or Ctrl+Z, then use the Translation tool (2)."
-                  : ""),
+                  ? {
+                      message:
+                        "That’s a waypoint. Press ⌘Z or Ctrl+Z, then use the Translation tool (2).",
+                      showMe: [undoStop],
+                    }
+                  : null),
               "",
             ),
           ),
@@ -622,13 +653,22 @@ export const fundamentalsTour: TourDefinition = {
           label: "Robot clears the obstacle",
           showMe: [{ target: "lesson-element", echo: "lesson-structure" }],
           check: outcome((path) =>
-            feedback(
+            feedbackOr(
               path.path_elements.some(isTranslationTarget) &&
                 clearance(path, currentConfig(), true),
               !path.path_elements.some(isTranslationTarget)
-                ? ""
-                : afterEndHint(path) ||
-                    "Drag the translation target farther from the obstacle.",
+                ? null
+                : (afterEnd(path) ?? {
+                    message:
+                      "Drag the translation target farther from the obstacle.",
+                    showMe: [
+                      chooseTool("select"),
+                      {
+                        target: "lesson-element",
+                        echo: "lesson-structure",
+                      },
+                    ],
+                  }),
               "",
             ),
           ),
@@ -842,11 +882,18 @@ export const pathTuningTour: TourDefinition = {
             element.handoff_radius_source === "manual" &&
             element.intermediate_handoff_radius_meters !== null,
         );
-        return feedback(
+        const other = manual.findIndex(
+          (isManual, index) => isManual && index !== 2,
+        );
+        return feedbackOr(
           manual[2],
-          manual.some(Boolean)
-            ? "That’s another point’s radius. Set it back to Auto, then pick Intermediate’s: the third m cell."
-            : "",
+          other >= 0
+            ? {
+                message:
+                  "That’s another point’s radius. Set it back to Auto, then pick Intermediate’s: the third m cell.",
+                showMe: [radiusCell(other), "label:Handoff distance source"],
+              }
+            : null,
           "This radius keeps your value when you generate.",
         );
       }),
@@ -1143,12 +1190,15 @@ export const eventTriggersTour: TourDefinition = {
             "lesson-segment",
           ],
           check: outcome((path) =>
-            feedback(
+            feedbackOr(
               secondSegmentEvents(path).length > 0,
               path.path_elements.filter(isEventTrigger).length >
                 (baselinePath?.path_elements.filter(isEventTrigger).length ?? 0)
-                ? wrongStretchHint("the translation target and End")
-                : "",
+                ? wrongStretch(
+                    "the translation target and End",
+                    strayEventIndex(path, secondSegment(path)),
+                  )
+                : null,
               "",
             ),
           ),

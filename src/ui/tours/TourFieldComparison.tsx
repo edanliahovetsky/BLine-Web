@@ -33,22 +33,6 @@ export function TourFieldComparison({
   const events = simulationEventKeysAtTime(path, result.trace, time);
   return (
     <>
-      <SegmentCue
-        viewport={viewport}
-        path={path}
-        segment={step?.segment?.(path) ?? null}
-      />
-      <ElementCue
-        viewport={viewport}
-        path={path}
-        index={step?.element?.(path) ?? null}
-      />
-      {path.preview?.start_pose ? (
-        <PointCue
-          id="lesson-start-pose"
-          point={modelToStagePoint(path.preview.start_pose, viewport)}
-        />
-      ) : null}
       {handoff && (
         <TourHandoffGuide
           viewport={viewport}
@@ -79,6 +63,53 @@ export function TourFieldComparison({
           <strong className="tour-event-cue">{events.join(" · ")}</strong>
         )}
       </div>
+    </>
+  );
+}
+
+/**
+ * Invisible boxes over the lesson's segment, its element, the preview start
+ * and every point, for the spotlight and Show me. They don't need a preview
+ * run, so they exist even for a path with only Start.
+ */
+export function TourPathCues({
+  viewport,
+  path,
+}: {
+  viewport: FieldViewport;
+  path: PathModel;
+}) {
+  const tourId = useStoreSelector(tourStore, (state) => state.activeTourId);
+  const stepIndex = useStoreSelector(tourStore, (state) => state.stepIndex);
+  const step = findTour(tourId)?.steps[stepIndex];
+  return (
+    <>
+      <SegmentCue
+        viewport={viewport}
+        path={path}
+        segment={step?.segment?.(path) ?? null}
+      />
+      <ElementCue
+        viewport={viewport}
+        path={path}
+        index={step?.element?.(path) ?? null}
+      />
+      {path.preview?.start_pose ? (
+        <PointCue
+          id="lesson-start-pose"
+          point={modelToStagePoint(path.preview.start_pose, viewport)}
+        />
+      ) : null}
+      {path.path_elements.map((_, index) => {
+        const position = getElementPosition(path.path_elements, index);
+        return position ? (
+          <PointCue
+            key={index}
+            id={`lesson-element-${index}`}
+            point={modelToStagePoint(position, viewport)}
+          />
+        ) : null;
+      })}
     </>
   );
 }

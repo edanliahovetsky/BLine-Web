@@ -9,7 +9,7 @@ import {
 import type { LinkedTarget, ProjectPathGroup } from "../../core/model/project";
 import { projectStore } from "../../state/projectStore";
 import { selectionStore } from "../../state/selectionStore";
-import { feedback, firstSeen } from "./tourChecks";
+import { feedback, feedbackOr, firstSeen, undoStop } from "./tourChecks";
 import { createImportExportTour } from "./importExportLesson";
 import { offlineTour } from "./offlineLesson";
 import { practiceConfig } from "./tourScenario";
@@ -280,12 +280,18 @@ const managementSteps: TourStep[] = [
       "label:Path Group name",
     ],
     check: () =>
-      feedback(
+      feedbackOr(
         !!groupNamed("My Auto"),
         (project()?.path_groups.length ?? 0) > startingGroups &&
           !present('[aria-label="Path Group name"]')
-          ? "Double-click the new group’s name to rename it My Auto."
-          : "",
+          ? {
+              message:
+                "Double-click the new group’s name to rename it My Auto.",
+              showMe: [
+                `label:Focus ${project()?.path_groups.at(-1)?.display_name ?? ""}`,
+              ],
+            }
+          : null,
         "",
       ),
   },
@@ -307,11 +313,20 @@ const managementSteps: TourStep[] = [
         (id) => !top.includes(id),
       );
       const names = extra.map((id) => pathById(id)?.display_name ?? id);
-      return feedback(
+      return feedbackOr(
         extra.length === 0,
         names.length
-          ? `My Auto also has ${names.join(", ")}. Click its dot again to disconnect it.`
-          : "",
+          ? {
+              message: `My Auto also has ${names.join(", ")}. Click its dot again to disconnect it.`,
+              showMe: [
+                {
+                  target: "label:Focus My Auto",
+                  done: () => groupFocused("My Auto"),
+                },
+                `label:Disconnect ${names[0]} from My Auto`,
+              ],
+            }
+          : null,
         "",
       );
     },
@@ -518,7 +533,14 @@ const linkedElementSteps: TourStep[] = [
           },
           "text:Link Selected",
         ],
-        check: () => feedback(linkedScoreUses(), wrongScoreLinkHint(), ""),
+        check: () => {
+          const hint = wrongScoreLinkHint();
+          return feedbackOr(
+            linkedScoreUses(),
+            hint ? { message: hint, showMe: [undoStop] } : null,
+            "",
+          );
+        },
       },
     ],
   },
@@ -541,12 +563,20 @@ const linkedElementSteps: TourStep[] = [
       tool: "select",
       showGhostPaths: true,
     },
-    check: () =>
-      feedback(
-        changedSharedScorePose(),
-        scoreEditHint(),
-        "Both paths have the new position and rotation.",
-      ),
+    check: () => {
+      const hint = scoreEditHint();
+      return {
+        ...feedback(
+          changedSharedScorePose(),
+          hint,
+          "Both paths have the new position and rotation.",
+        ),
+        // Unlinking is undone, not redone; the other hints follow the step.
+        ...(hint === "Keep both waypoints linked to Score."
+          ? { showMe: [undoStop] }
+          : {}),
+      };
+    },
   },
   {
     title: "Check the other path",
@@ -899,11 +929,18 @@ const definitions: SupplementalTour[] = [
             label: "Played with Progress",
             showMe: ["transport-play"],
             check: () =>
-              feedback(
+              feedbackOr(
                 playedWithProgress(),
                 middleHandoffMode() === "progress"
-                  ? ""
-                  : "Switch the middle point back to Progress first.",
+                  ? null
+                  : {
+                      message:
+                        "Switch the middle point back to Progress first.",
+                      showMe: [
+                        radiusCell(1, "lesson-element"),
+                        "label:Progress",
+                      ],
+                    },
                 "",
               ),
           },

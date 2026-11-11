@@ -2013,6 +2013,42 @@ test("organizes an auto and test project into a new Path Group @webkit-canvas", 
   await finish(page);
 });
 
+test("Show me follows a near miss instead of the usual route", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await gotoSampleEditor(page);
+  await openLesson(page, "BLine Fundamentals");
+  await heading(page, "See a complete path");
+  await page.evaluate(async () => {
+    const { tourStore }: typeof import("../../src/ui/tours/tourStore") =
+      await import(/* @vite-ignore */ "/src/ui/tours/tourStore.ts" as string);
+    tourStore.getState().next(6);
+  });
+  await heading(page, "Place Start and End");
+  const card = page.getByTestId("tour-card");
+  const showMe = card.getByRole("button", { name: "Show me", exact: true });
+  const spotlight = page.getByTestId("tour-spotlight");
+  await place(page, "Waypoint", 5, 2);
+  // Short of the End zone.
+  await place(page, "Waypoint", 11, 2.5);
+  await expect(card).toContainText(
+    "Drag the second waypoint into the End zone.",
+  );
+  await showMe.click();
+  // It points at that waypoint, not at the tool for another one.
+  await expect(spotlight).toHaveAttribute("data-show-me", "lesson-element-1");
+  await expect(page.getByTestId("tour-spotlight-echo")).toHaveCount(1);
+  await place(page, "Waypoint", 15, 2.5);
+  await expect(card).toContainText("That’s an extra waypoint.");
+  await showMe.click();
+  await expect(spotlight).toHaveAttribute("data-show-me", "label:Undo");
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect
+    .poll(async () => (await practice(page)).path.path_elements.length)
+    .toBe(2);
+});
+
 test("Show me points at the extra point's remove button in Fix a mistake", async ({
   page,
 }) => {

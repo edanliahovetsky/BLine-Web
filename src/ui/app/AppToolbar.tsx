@@ -398,6 +398,7 @@ export function AppToolbar({
         </div>
         <div className="toolbar-actions__buttons" data-tour="edit-controls">
           <IconButton
+            data-tour="history-undo"
             aria-label="Undo"
             aria-keyshortcuts="Meta+Z Control+Z"
             title={`${undoLabel} (${formatShortcut(commands.undo.shortcut)})`}
@@ -407,6 +408,7 @@ export function AppToolbar({
             <Undo2 aria-hidden="true" size={16} />
           </IconButton>
           <IconButton
+            data-tour="history-redo"
             aria-label="Redo"
             aria-keyshortcuts="Meta+Shift+Z Control+Shift+Z Meta+Y Control+Y"
             title={`${redoLabel} (${formatShortcut(commands.redo.shortcut)})`}

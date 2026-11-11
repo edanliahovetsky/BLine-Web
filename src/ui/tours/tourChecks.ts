@@ -1,7 +1,7 @@
 import { isEventTrigger, type PathModel } from "../../core/model/path";
 import type { ProjectConfig } from "../../core/model/project";
 import { autoVelocityStatusForPath } from "../../core/constraints/autoVelocityApply";
-import { tourStore, type TourFeedback } from "./tourStore";
+import { tourStore, type TourFeedback, type TourShowMe } from "./tourStore";
 
 export function feedback(
   complete: boolean,
@@ -10,6 +10,25 @@ export function feedback(
 ): TourFeedback {
   return { complete, message: complete ? success : waiting };
 }
+/** A near miss: what went wrong, and where Show me points to fix it. */
+export interface NearMiss {
+  message: string;
+  showMe: TourShowMe;
+}
+/** Like `feedback`, but a near miss also redirects Show me to its fix. */
+export function feedbackOr(
+  complete: boolean,
+  miss: NearMiss | null,
+  success: string,
+): TourFeedback {
+  return complete
+    ? { complete, message: success }
+    : miss
+      ? { complete, message: miss.message, showMe: miss.showMe }
+      : { complete, message: "" };
+}
+/** Show me's stop for Undo, when a hint says to press ⌘Z. */
+export const undoStop = "label:Undo";
 /**
  * Lesson keys must match exactly, as they do in robot code. When the only
  * problem is capitalization, say so instead of repeating the instruction.
@@ -102,17 +121,55 @@ export function firstSeen<T>() {
   };
 }
 /**
- * Placing an event opens the sidebar and focuses its Lib Key, where ⌘Z and
- * Delete edit the text, so point at the row's remove button. With the sidebar
- * closed (after Back, say), selecting the event on the canvas works instead.
+ * An event placed on the wrong stretch. Placing one opens the sidebar and
+ * focuses its Lib Key, where ⌘Z and Delete edit the text, so the hint and
+ * Show me point at the row's remove button. With the sidebar closed (after
+ * Back, say), selecting the event on the canvas works instead.
  */
-export const wrongStretchHint = (between: string) => {
+export const wrongStretch = (
+  between: string,
+  eventIndex: number | null,
+): NearMiss => {
   const sidebarOpen =
     typeof document !== "undefined" &&
     !!document.querySelector(
       '[data-tour="inspector-toggle"][aria-expanded="true"]',
     );
   return sidebarOpen
-    ? `That one isn’t between ${between}. Remove it with its row’s red − button, then click the highlighted stretch.`
-    : `That one isn’t between ${between}. Click it and press Delete, then click the highlighted stretch.`;
+    ? {
+        message: `That one isn’t between ${between}. Remove it with its row’s red − button, then click the highlighted stretch.`,
+        showMe:
+          eventIndex === null
+            ? []
+            : [`label:Remove Event Trigger ${eventIndex + 1}`],
+      }
+    : {
+        message: `That one isn’t between ${between}. Click it and press Delete, then click the highlighted stretch.`,
+        showMe:
+          eventIndex === null
+            ? []
+            : [
+                { target: "tool-select", done: selectToolChosen },
+                `lesson-element-${eventIndex}`,
+              ],
+      };
 };
+const selectToolChosen = () =>
+  typeof document !== "undefined" &&
+  !!document.querySelector('[data-tour="tool-select"][aria-pressed="true"]');
+/**
+ * The newest event outside a stretch, ignoring `startIntake` from an earlier
+ * step, which belongs on the first stretch.
+ */
+export function strayEventIndex(
+  path: PathModel,
+  bounds: readonly [number, number] | null,
+): number | null {
+  let stray: number | null = null;
+  path.path_elements.forEach((element, index) => {
+    if (!isEventTrigger(element)) return;
+    const inside = !!bounds && index > bounds[0] && index < bounds[1];
+    if (!inside && element.lib_key.trim() !== "startIntake") stray = index;
+  });
+  return stray;
+}
