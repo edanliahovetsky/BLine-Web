@@ -1059,9 +1059,9 @@ test("restores the user's path, field, tab, and clean practice on reopening", as
   await page.reload();
   await dismissMobileSupportWarning(page);
   const library = await openPathLibraryDialog(page);
-  await expect(library.getByText("Tour practice", { exact: true })).toHaveCount(
-    0,
-  );
+  await expect(
+    library.getByText("Lesson practice", { exact: true }),
+  ).toHaveCount(0);
 });
 
 test("exports and imports an autos folder inside the web lesson", async ({
@@ -1622,6 +1622,78 @@ test("going back after resuming a lesson restores that step's path", async ({
   // The finished example to play is back, not the emptied later step.
   await heading(page, "See a complete path");
   expect((await practice(page)).path.path_elements).toHaveLength(6);
+});
+
+test("Fix a mistake explains a deleted Start and going back keeps the learner's route", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoSampleEditor(page);
+  await openLesson(page, "BLine Fundamentals");
+  await heading(page, "See a complete path");
+  const next = () =>
+    page.evaluate(async () => {
+      const { tourStore }: typeof import("../../src/ui/tours/tourStore") =
+        await import(/* @vite-ignore */ "/src/ui/tours/tourStore.ts" as string);
+      tourStore.getState().next(6);
+    });
+  await next();
+  await heading(page, "Place Start and End");
+  // Stand in for the learner's own Start and End.
+  await page.evaluate(async () => {
+    const { projectStore }: typeof import("../../src/state/projectStore") =
+      await import(/* @vite-ignore */ "/src/state/projectStore.ts" as string);
+    const { createFundamentalsDemoPath } = await import(
+      /* @vite-ignore */ "/src/ui/tours/courseScenarios.ts" as string
+    );
+    const demo = createFundamentalsDemoPath();
+    const route = {
+      ...demo,
+      path_elements: demo.path_elements.filter(
+        (element: { type: string }) => element.type === "waypoint",
+      ),
+    };
+    const state = projectStore.getState();
+    projectStore.setState({
+      project: {
+        ...state.project!,
+        paths: state.project!.paths.map((path) =>
+          path.path_id === state.activePathId ? { ...path, path: route } : path,
+        ),
+      },
+    });
+  });
+  await next();
+  await heading(page, "Turn a waypoint");
+  await next();
+  await heading(page, "Fix a mistake");
+  // Start is selected so new points go after it. Deleting it by mistake
+  // says how to get it back.
+  await page.getByTestId("path-element-row-0").click();
+  await page.keyboard.press("Delete");
+  await expect(page.getByTestId("tour-card")).toContainText(
+    "That removed Start or End.",
+  );
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect
+    .poll(async () => (await practice(page)).path.path_elements.length)
+    .toBe(2);
+  await expect(page.getByTestId("tour-card")).not.toContainText(
+    "That removed Start or End.",
+  );
+
+  await exitLesson(page);
+  await page.getByRole("button", { name: "Help and tutorials" }).click();
+  await page.getByTestId("start-guided-tour").click();
+  await page.getByTestId("tour-picker-resume").click();
+  await heading(page, "Fix a mistake");
+  await page
+    .getByTestId("tour-card")
+    .getByRole("button", { name: "Back", exact: true })
+    .click();
+  // The learner's Start and End, not step 2's empty field.
+  await heading(page, "Turn a waypoint");
+  expect((await practice(page)).path.path_elements).toHaveLength(2);
 });
 
 test("Space after a finished lesson plays the path, not the next lesson", async ({

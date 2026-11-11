@@ -56,7 +56,7 @@ import {
 } from "./courseScenarios";
 
 export const editorBasicsTourId = "getting-started";
-export const tourPracticePathName = "Tour practice";
+export const tourPracticePathName = "Lesson practice";
 let baselinePath: PathModel | null = null;
 let baselineActions: Partial<Record<TourAction, number>> = {};
 let baselineGeneration = 0;
@@ -262,6 +262,11 @@ const extraPoint = (() => {
 })();
 const extraPointAdded = () => extraPoint().added;
 const extraPointRemoved = () => extraPoint().removed;
+/** A near miss for building steps: Start or End was deleted along the way. */
+const lostWaypointHint = () =>
+  (currentPath()?.path_elements.filter(isWaypoint).length ?? 2) < 2
+    ? "That removed Start or End. Press ⌘Z or Ctrl+Z, or choose Restart lesson in the ⋯ menu."
+    : "";
 const played = {
   label: "Played it",
   showMe: ["transport-play"],
@@ -469,7 +474,7 @@ export const fundamentalsTour: TourDefinition = {
     {
       title: "Turn a waypoint",
       task: "Change End’s rotation, then press Play",
-      body: "Rotation is the way the robot faces. Type degrees, or drag the box’s front edge.",
+      body: "Rotation is the way the robot faces. Type degrees, or drag the box’s front dot.",
       target: "element-properties",
       visible: ["path-canvas", "simulation-transport"],
       interact: elementExploration,
@@ -505,7 +510,12 @@ export const fundamentalsTour: TourDefinition = {
         {
           label: "Extra point added",
           showMe: [chooseTool("translation"), "lesson-segment"],
-          check: () => feedback(extraPointAdded(), "", ""),
+          check: () =>
+            feedback(
+              extraPointAdded(),
+              extraPointAdded() ? "" : lostWaypointHint(),
+              "",
+            ),
         },
         {
           label: "Extra point removed",
@@ -534,7 +544,11 @@ export const fundamentalsTour: TourDefinition = {
           label: "Translation target added",
           showMe: [chooseTool("translation"), "lesson-segment"],
           check: outcome((path) =>
-            feedback(path.path_elements.some(isTranslationTarget), "", ""),
+            feedback(
+              path.path_elements.some(isTranslationTarget),
+              lostWaypointHint(),
+              "",
+            ),
           ),
         },
         {
@@ -866,7 +880,7 @@ export const rotationTargetsTour: TourDefinition = {
     {
       title: "Try a rotation in motion",
       task: "Change its rotation, then press Play",
-      body: "Type degrees in Rotation (deg), or drag the front edge of its robot.",
+      body: "Type degrees in Rotation (deg), or drag the dot on its front edge.",
       target: "element-properties",
       visible: ["path-canvas", "simulation-transport"],
       interact: elementExploration,

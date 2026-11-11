@@ -725,7 +725,7 @@ const definitions: SupplementalTour[] = [
         title: "Move the preview start",
         task: "Drag the grey ghost waypoint somewhere else",
         body: "With no Start, the path begins wherever the robot is. The grey ghost stands in for it.",
-        why: "Drag its front edge to rotate it, or select it and use the arrow keys for fine moves. Generated constraints use its pose too.",
+        why: "Drag the dot on its front edge to rotate it, or select it and use the arrow keys for fine moves. Generated constraints use its pose too.",
         target: "path-canvas",
         prepare: { inspector: "closed", simulation: "start", tool: "select" },
         interact: ["path-canvas"],

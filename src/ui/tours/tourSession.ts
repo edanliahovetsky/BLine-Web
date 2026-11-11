@@ -59,13 +59,18 @@ let nextTourSessionId = 1;
 /**
  * The practice path a step begins from: the nearest seed at or before it, or
  * the lesson's own. Lessons with several practice paths have no single one.
+ * A seed only describes a later step when every step since it is read-only;
+ * after a task step the learner's own work, which isn't known after resuming,
+ * is the closer starting point, so keep the current path instead.
  */
 function startingPathFor(
   definition: TourDefinition,
   stepIndex: number,
 ): (() => PathModel) | undefined {
   for (let index = stepIndex; index >= 0; index -= 1) {
-    const seed = definition.steps[index]?.prepare?.practicePath;
+    const step = definition.steps[index];
+    if (index < stepIndex && step?.task) return undefined;
+    const seed = step?.prepare?.practicePath;
     if (seed) return seed;
   }
   return definition.practicePaths ? undefined : definition.practicePath;

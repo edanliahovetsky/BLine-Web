@@ -87,7 +87,7 @@ describe("Tour session", () => {
     controller.restartStep();
     expect(current()).toEqual(seed());
     expect(projects.getState().project!.paths[0].display_name).toBe(
-      "Tour practice",
+      "Lesson practice",
     );
     tours.getState().next(3);
     controller.restartLesson();
@@ -144,7 +144,7 @@ describe("Tour session", () => {
     expect(projects.getState().dirty).toBe(false);
     controller.restartLesson();
     expect(projects.getState().project?.paths[0].display_name).toBe(
-      "Tour practice",
+      "Lesson practice",
     );
     expect(tours.getState().stepIndex).toBe(0);
     expect(tours.getState().completedStepIndexes).toEqual([]);
@@ -226,7 +226,7 @@ describe("Tour session", () => {
     expect(practice.project?.paths).toHaveLength(1);
     expect(practice.project?.paths[0]).toMatchObject({
       path_id: "path-1",
-      display_name: "Tour practice",
+      display_name: "Lesson practice",
     });
     expect(practice.history.getState().undoStack).toEqual([]);
     expect(selections.getState().selectedElementIndex).toBeNull();
@@ -344,7 +344,7 @@ describe("Tour session", () => {
 
     expect(controller.start(definition.id)).toBe(true);
     expect(projects.getState().project?.paths[0].display_name).toBe(
-      "Tour practice",
+      "Lesson practice",
     );
     expect(projects.getState().io).toBeNull();
 

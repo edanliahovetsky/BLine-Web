@@ -5109,8 +5109,15 @@ select {
   line-height: 1.45;
 }
 
+/* "Next: <lesson title>" rarely fits beside All lessons in the card's width,
+   so the recap stacks them, the next lesson first. */
 .tour-recap .tour-card__actions {
-  justify-content: flex-end;
+  flex-direction: column-reverse;
+  align-items: stretch;
+}
+
+.tour-recap .tour-card__actions button {
+  padding-block: 7px;
 }
 
 .tour-card__resource {
