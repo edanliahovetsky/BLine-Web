@@ -408,6 +408,7 @@ export const fundamentalsTour: TourDefinition = {
   practicePath: createFundamentalsDemoPath,
   practiceConfig,
   markers: fundamentalsZones,
+  hidePreviewStart: true,
   steps: [
     {
       title: "See a complete path",

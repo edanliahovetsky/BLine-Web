@@ -4822,6 +4822,43 @@ select {
   will-change: opacity;
 }
 
+/* A blocked click flashes the card; two names restart the animation. */
+.tour-card[data-nudge="0"] {
+  animation: tour-card-nudge-a 520ms ease-out;
+}
+.tour-card[data-nudge="1"] {
+  animation: tour-card-nudge-b 520ms ease-out;
+}
+@keyframes tour-card-nudge-a {
+  0%,
+  100% {
+    border-color: var(--bline-border-strong);
+  }
+  30% {
+    border-color: var(--bline-accent);
+    box-shadow:
+      var(--bline-shadow-dialog),
+      0 0 0 3px color-mix(in srgb, var(--bline-accent) 35%, transparent);
+  }
+}
+@keyframes tour-card-nudge-b {
+  0%,
+  100% {
+    border-color: var(--bline-border-strong);
+  }
+  30% {
+    border-color: var(--bline-accent);
+    box-shadow:
+      var(--bline-shadow-dialog),
+      0 0 0 3px color-mix(in srgb, var(--bline-accent) 35%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tour-card[data-nudge] {
+    animation: none;
+  }
+}
+
 @media (hover: hover) and (pointer: fine) {
   .tour-card[data-hover-fade="true"]:hover:not(
       :has(button:hover, input:hover, pre:hover)

@@ -2013,6 +2013,55 @@ test("organizes an auto and test project into a new Path Group @webkit-canvas", 
   await finish(page);
 });
 
+test("Fundamentals hides the current-pose ghost and mid-build Path Health", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await gotoSampleEditor(page);
+  await openLesson(page, "BLine Fundamentals");
+  await heading(page, "See a complete path");
+  await page.evaluate(async () => {
+    const { tourStore }: typeof import("../../src/ui/tours/tourStore") =
+      await import(/* @vite-ignore */ "/src/ui/tours/tourStore.ts" as string);
+    tourStore.getState().next(6);
+  });
+  await heading(page, "Place Start and End");
+  await place(page, "Waypoint", 5, 2);
+  // One waypoint and no ghost: no stand-in start, no preview run.
+  await expect
+    .poll(async () => (await practice(page)).path.path_elements.length)
+    .toBe(1);
+  expect((await practice(page)).path.preview).toBeUndefined();
+  await expect(page.getByLabel("Simulation time", { exact: true })).toHaveValue(
+    "0",
+  );
+  // A one-point path is unfinished, not something to warn a learner about.
+  await expect(page.getByRole("button", { name: /^Path health:/ })).toHaveCount(
+    0,
+  );
+});
+
+test("a blocked click nudges the card and plays Show me", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await gotoSampleEditor(page);
+  await openLesson(page, "Getting Started");
+  await page.evaluate(async () => {
+    const { tourStore }: typeof import("../../src/ui/tours/tourStore") =
+      await import(/* @vite-ignore */ "/src/ui/tours/tourStore.ts" as string);
+    tourStore.getState().next(5);
+    tourStore.getState().next(5);
+  });
+  await heading(page, "Menus");
+  const card = page.getByTestId("tour-card");
+  await expect(card).not.toHaveAttribute("data-nudge", /./);
+  // The sidebar toggle isn't part of this step.
+  await page
+    .getByRole("button", { name: "Toggle inspector", exact: true })
+    .click({ force: true });
+  await expect(card).toHaveAttribute("data-nudge", /[01]/);
+  await expect(page.locator(".tour-spotlight")).not.toHaveCount(0);
+});
+
 test("Linked Elements says which path to open after the wrong one was clicked", async ({
   page,
 }) => {

@@ -127,6 +127,11 @@ export function TourOverlay({
   const [guide, setGuide] = useState<{ token: string; replay: number } | null>(
     null,
   );
+  // A click the step doesn't allow flashes the card and, if the step is
+  // unfinished, plays Show me, so a blocked click never goes unanswered.
+  const [nudge, setNudge] = useState(0);
+  const nudgeRef = useRef<() => void>(() => {});
+  const lastNudge = useRef(0);
   const [guideStop, setGuideStop] = useState<{
     token: string;
     target: string;
@@ -218,6 +223,24 @@ export function TourOverlay({
     }, showMeInterval);
     return () => window.clearTimeout(timer);
   }, [showMeIndex, showMeTargets.length]);
+
+  // Keep the blocked-click handler reading this render's step state.
+  useEffect(() => {
+    nudgeRef.current = () => {
+      const now = Date.now();
+      if (now - lastNudge.current < 2000) return;
+      lastNudge.current = now;
+      setNudge((count) => count + 1);
+      if (isReviewing || actionComplete) return;
+      if (guided)
+        setGuide({
+          token: stepToken,
+          replay: guiding ? (guide?.replay ?? 0) + 1 : 0,
+        });
+      else if (showMeTargets.length > 0)
+        setShowMeState({ token: stepToken, index: 0 });
+    };
+  });
 
   // A learner who makes no progress for a while gets Show me without asking.
   const progressKey = JSON.stringify(feedbackResult);
@@ -531,6 +554,7 @@ export function TourOverlay({
         return;
       event.preventDefault();
       event.stopImmediatePropagation();
+      if (event.type === "pointerdown") nudgeRef.current();
     };
     const events = ["pointerdown", "click", "contextmenu"];
     for (const name of events)
@@ -886,6 +910,7 @@ export function TourOverlay({
           key={`shield-${index}`}
           className="tour-shield-region"
           aria-hidden="true"
+          onPointerDown={() => nudgeRef.current()}
           style={{
             top: `${region.top}px`,
             left: `${region.left}px`,
@@ -899,6 +924,7 @@ export function TourOverlay({
         className={`tour-card${collapsed ? " is-collapsed" : ""}${
           dragged?.tourId === activeTourId ? " is-moved" : ""
         }`}
+        data-nudge={nudge > 0 ? nudge % 2 : undefined}
         data-testid="tour-card"
         data-step-title={step.title}
         inert={!!confirming}

@@ -195,6 +195,12 @@ export interface TourDefinition {
   recap: readonly string[];
   /** Lib Keys registered in the practice project so lessons never ask for unknown keys. */
   eventKeys?: readonly string[];
+  /**
+   * Don't draw the current-pose ghost while the path has no authored start.
+   * A learner placing Start would otherwise see a second robot appear; the
+   * Current-pose Starts lesson introduces the ghost on its own.
+   */
+  hidePreviewStart?: true;
   /** Scenario cues drawn over the practice field for this lesson only. */
   markers?: readonly TourMarker[];
   /**

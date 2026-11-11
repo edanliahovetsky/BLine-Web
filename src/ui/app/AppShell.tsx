@@ -116,7 +116,7 @@ import {
 } from "./editorCommands";
 import { derivePathDiagnostics, type PathDiagnostic } from "./pathDiagnostics";
 import { TourOverlay } from "../tours/TourOverlay";
-import { tourStore } from "../tours/tourStore";
+import { tourStore, type TourStep } from "../tours/tourStore";
 import {
   capturePracticeTransfer,
   importPracticeFolderWithFeedback,
@@ -202,6 +202,13 @@ function focusEventKeyField() {
   const lesson = tourStore.getState();
   const step = findTour(lesson.activeTourId)?.steps[lesson.stepIndex];
   if (input && (!step || tourAllowsTarget(step, input))) input.focus();
+}
+
+const noDiagnostics: readonly PathDiagnostic[] = [];
+function lessonShowsPathHealth(step: TourStep): boolean {
+  return [...(step.visible ?? []), ...(step.interact ?? [])].includes(
+    "path-health",
+  );
 }
 
 export function AppShell() {
@@ -347,6 +354,10 @@ export function AppShell() {
   const activeTourStep = activeTour?.steps[tourStepIndex];
   const settingsWalkthrough = activeTourStep?.settingsSection;
   const autoGenerationAllowed = activeTourStep?.autoGenerate !== false;
+  // Mid-lesson warnings about a half-built path are noise; a lesson shows
+  // Path Health only on the steps that teach it.
+  const hidePathHealth =
+    !!activeTourStep && !lessonShowsPathHealth(activeTourStep);
   const [tourSimulationSeekRequest, setTourSimulationSeekRequest] =
     useState<SimulationSeekRequest | null>(null);
   // The inspector docks beside the canvas, or below it in a tall window.
@@ -2074,6 +2085,7 @@ export function AppShell() {
       ),
     [activeField.geometry, activePath, durableProject],
   );
+  const statusDiagnostics = hidePathHealth ? noDiagnostics : pathDiagnostics;
   const handleResolvePathDiagnostic = useCallback(
     (diagnostic: PathDiagnostic) => {
       const state = projectStore.getState();
@@ -2655,7 +2667,7 @@ export function AppShell() {
     <WorkspaceStatus
       compact={!inspectorVisible}
       offlineLesson={activeTourStep?.target === "offline-indicator"}
-      diagnostics={pathDiagnostics}
+      diagnostics={statusDiagnostics}
       saveCommand={saveCommand}
       saveStatus={saveStatus}
       saveStatusTone={saveStatusTone}

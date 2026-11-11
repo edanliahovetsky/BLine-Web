@@ -789,12 +789,14 @@ export function PathStage({
     animateView(reframe(intended).target, reframe(previous.view).start);
   });
 
+  // Some lessons teach placing Start before the current-pose ghost exists.
+  const hidePreviewStart = !!findTour(activeTourId)?.hidePreviewStart;
   const positionPreview = useMemo(
     () =>
-      activePath
+      activePath && !hidePreviewStart
         ? pathPositionOverrides(activePath.path, dragPreview)
         : dragPreview,
-    [activePath, dragPreview],
+    [activePath, dragPreview, hidePreviewStart],
   );
   const selectedCanvasIndex =
     selectedElementIndex ??
@@ -813,6 +815,7 @@ export function PathStage({
     if (
       !stageMeasured ||
       !activePath ||
+      hidePreviewStart ||
       hasAuthoredStart(activePath.path) ||
       activePath.path.preview?.start_pose ||
       !activePath.path.path_elements.some(isAnchorElement)
@@ -825,12 +828,14 @@ export function PathStage({
       ),
       rotation_radians: 0,
     });
-  }, [activePath, stageSize, viewport, stageMeasured]);
+  }, [activePath, stageSize, viewport, stageMeasured, hidePreviewStart]);
 
   const committedSimulationResult: SimTraceResult | null = useMemo(() => {
     if (!activePath || !durableProject) {
       return null;
     }
+    // Without the ghost there is no start to drive from yet.
+    if (hidePreviewStart && !hasAuthoredStart(activePath.path)) return null;
 
     try {
       return simulatePathWithTrace(activePath.path, durableProject.config, {
@@ -839,7 +844,7 @@ export function PathStage({
     } catch {
       return null;
     }
-  }, [activePath, durableProject]);
+  }, [activePath, durableProject, hidePreviewStart]);
 
   const previewPath = useMemo(() => {
     if (!activePath || !durableProject) return null;
