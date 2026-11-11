@@ -101,6 +101,18 @@ export function firstSeen<T>() {
     return seen.get(key)!;
   };
 }
-/** Placing an event focuses its Lib Key, where ⌘Z undoes typing instead. */
-export const wrongStretchHint = (between: string) =>
-  `That one isn’t between ${between}. Remove it with its row’s red − button, then click the highlighted stretch.`;
+/**
+ * Placing an event opens the sidebar and focuses its Lib Key, where ⌘Z and
+ * Delete edit the text, so point at the row's remove button. With the sidebar
+ * closed (after Back, say), selecting the event on the canvas works instead.
+ */
+export const wrongStretchHint = (between: string) => {
+  const sidebarOpen =
+    typeof document !== "undefined" &&
+    !!document.querySelector(
+      '[data-tour="inspector-toggle"][aria-expanded="true"]',
+    );
+  return sidebarOpen
+    ? `That one isn’t between ${between}. Remove it with its row’s red − button, then click the highlighted stretch.`
+    : `That one isn’t between ${between}. Click it and press Delete, then click the highlighted stretch.`;
+};

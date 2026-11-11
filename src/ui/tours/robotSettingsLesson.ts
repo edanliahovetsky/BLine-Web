@@ -324,7 +324,7 @@ export const robotSettingsTour: TourDefinition = {
               : "",
         ),
         configCheck(
-          "Starts Hidden",
+          "Default state: Hidden",
           "Default Protrusion State",
           (c) => c.gui.protrusions.default_state === "hidden",
         ),
@@ -379,7 +379,7 @@ export const robotSettingsTour: TourDefinition = {
     canvas({
       title: "Watch the intake extend and retract",
       task: "Play through both events",
-      body: "Watch the front edge as the robot crosses each event.",
+      body: "Watch the front edge as the robot crosses each event. Drag the play bar to look closer.",
       target: "simulation-transport",
       showMe: [{ target: "transport-play" }],
       check: playedThrough(
