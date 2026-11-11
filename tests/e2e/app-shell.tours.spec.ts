@@ -2013,6 +2013,29 @@ test("organizes an auto and test project into a new Path Group @webkit-canvas", 
   await finish(page);
 });
 
+test("keeps a checklist card's Show me and buttons on screen in a half-width window", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 700, height: 900 });
+  await gotoSampleEditor(page);
+  await dismissMobileSupportWarning(page);
+  await openLesson(page, "BLine Fundamentals");
+  await heading(page, "See a complete path");
+  await page.evaluate(async () => {
+    const { tourStore }: typeof import("../../src/ui/tours/tourStore") =
+      await import(/* @vite-ignore */ "/src/ui/tours/tourStore.ts" as string);
+    for (let step = 0; step < 4; step += 1) tourStore.getState().next(6);
+  });
+  await heading(page, "Route around the obstacle");
+  const card = page.getByTestId("tour-card");
+  await expect(
+    card.getByRole("button", { name: "Show me", exact: true }),
+  ).toBeInViewport({ ratio: 1 });
+  await expect(
+    card.getByRole("button", { name: "Back", exact: true }),
+  ).toBeInViewport({ ratio: 1 });
+});
+
 test("keeps the lesson card off a faint path the learner must click", async ({
   page,
 }) => {

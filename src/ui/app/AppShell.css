@@ -7094,7 +7094,7 @@ body.is-resizing-inspector * {
 /* Stack the coach below the editor instead of disabling lessons in narrow panes. */
 @media (max-width: 700px) {
   .app-shell[data-lesson-active] {
-    --lesson-card-space: min(40dvh, 290px);
+    --lesson-card-space: min(46dvh, 360px);
     padding-bottom: var(--lesson-card-space);
   }
   .tour-card {
@@ -7102,7 +7102,16 @@ body.is-resizing-inspector * {
     bottom: 12px;
     left: 12px !important;
     width: calc(100vw - 24px);
-    max-height: calc(min(40dvh, 290px) - 24px);
+    max-height: calc(var(--lesson-card-space, min(46dvh, 360px)) - 24px);
+  }
+  /* The short sheet scrolls a long checklist; Back and Continue stay put. */
+  .tour-card__footer {
+    position: sticky;
+    bottom: -12px;
+    margin: 0 -14px -12px;
+    padding: 8px 14px 12px;
+    background: var(--bline-surface-raised);
+    border-top: 1px solid var(--bline-border-subtle);
   }
   .config-dialog-backdrop--lesson {
     bottom: var(--lesson-card-space);
