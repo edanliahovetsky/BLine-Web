@@ -84,11 +84,14 @@ describe("lesson autos folder transfer", () => {
     );
     expect(lesson.steps[1].check!().complete).toBe(true);
     expect(assessTourStep(lesson.steps[2]).complete).toBe(false);
+    // Playing another path first doesn't count once Score to Pickup opens.
+    tourStore.getState().recordAction("play");
     projectStore.setState({
       activePathId: state.project!.paths.find(
         (path) => path.file_name === "score-to-pickup.json",
       )!.path_id,
     });
+    expect(assessTourStep(lesson.steps[2]).complete).toBe(false);
     tourStore.getState().recordAction("play");
     expect(assessTourStep(lesson.steps[2]).complete).toBe(true);
   });

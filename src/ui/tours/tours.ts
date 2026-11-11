@@ -494,7 +494,7 @@ export const fundamentalsTour: TourDefinition = {
     },
     {
       title: "Fix a mistake",
-      task: "Add an extra point, then remove it",
+      task: "Add a translation target, then remove it",
       body: "Select it and press Delete, or press ⌘Z.",
       why: "Placing returns you to Select, so a stray click won’t add more points. Undo (⌘Z or Ctrl+Z) reverses any edit, including a deletion.",
       target: "tool-translation",

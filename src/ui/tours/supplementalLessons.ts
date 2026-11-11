@@ -283,6 +283,25 @@ const managementSteps: TourStep[] = [
     target: "navigator-paths",
     interact: navigation,
     prepare: { navigator: "open" },
+    // A stray dot click would leave another path in the group unnoticed.
+    check: () => {
+      const top: readonly string[] = [
+        managementIds.topStartScore,
+        managementIds.topScorePickup,
+        managementIds.topPickupScore,
+      ];
+      const extra = (groupNamed("My Auto")?.path_ids ?? []).filter(
+        (id) => !top.includes(id),
+      );
+      const names = extra.map((id) => pathById(id)?.display_name ?? id);
+      return feedback(
+        extra.length === 0,
+        names.length
+          ? `My Auto also has ${names.join(", ")}. Click its dot again to disconnect it.`
+          : "",
+        "",
+      );
+    },
     checks: (
       [
         ["Top - Start to Score", managementIds.topStartScore],
@@ -410,6 +429,18 @@ const linkedElementSteps: TourStep[] = [
     visible: ["path-canvas"],
     interact: linkedEditing,
     showMe: [
+      // Clicking the path instead of the group in the step before leaves
+      // Score to Pickup open; its End is Pickup, not Score.
+      {
+        target: "path-breadcrumb",
+        done: () =>
+          activePathIs(ids.stagingScore) ||
+          present('[data-tour="path-breadcrumb"] [aria-expanded="true"]'),
+      },
+      {
+        target: "text:Start to Score",
+        done: () => activePathIs(ids.stagingScore),
+      },
       linkMenu,
       {
         target: "text:New Linked Waypoint",
@@ -425,13 +456,19 @@ const linkedElementSteps: TourStep[] = [
       tool: "select",
     },
     check: () =>
-      feedback(
-        !!scoreTarget() &&
-          getPathElementLinkedTargetId(scoringElements()[0]) ===
-            scoreTarget()?.target_id,
-        "",
-        "End now uses the shared Score.",
-      ),
+      activePathIs(ids.stagingScore)
+        ? feedback(
+            !!scoreTarget() &&
+              getPathElementLinkedTargetId(scoringElements()[0]) ===
+                scoreTarget()?.target_id,
+            "",
+            "End now uses the shared Score.",
+          )
+        : {
+            complete: false,
+            message:
+              "This is Score to Pickup. Open Start to Score from the path dropdown, then link its End.",
+          },
   },
   {
     title: "Link the next path's Start",
@@ -767,7 +804,7 @@ const definitions: SupplementalTour[] = [
     summary: "Choose when the follower moves to the next point",
     durationMinutes: 4,
     recap: [
-      "Radius hands off within a distance of the point; Progress hands off once that much of the line into it remains.",
+      "Radius hands off within a set distance of the point; Progress hands off once that distance of the line remains.",
       "Each point can override the project’s default mode from its cell in Constraints.",
     ],
     practiceConfig,
@@ -790,7 +827,7 @@ const definitions: SupplementalTour[] = [
     steps: [
       {
         title: "Two ways to reach a handoff",
-        body: "A handoff moves the robot on to its next point early. Radius hands off near the point; Progress hands off when that much of the line into it is left.",
+        body: "A handoff moves the robot on to its next point early. Radius: once it’s within the set distance of the point. Progress: once that distance of the line remains.",
         why: "Neither mode makes the robot stop. The final point has no handoff; it uses end tolerances instead.",
         visible: ["path-canvas", "inspector-panel"],
         prepare: {

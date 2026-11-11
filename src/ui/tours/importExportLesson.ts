@@ -25,6 +25,38 @@ const fileMenus = [
 const playback = ["simulation-transport", "transport-timeline"];
 const hasAction = (action: "exportFolder" | "importFolder" | "play") =>
   (tourStore.getState().actions[action] ?? 0) > 0;
+/** Latched per step attempt: Play pressed while Score to Pickup was open. */
+const tourToken = () => {
+  const state = tourStore.getState();
+  return `${state.activeTourId}:${state.attemptId}:${state.stepIndex}`;
+};
+const onScoreToPickup = () =>
+  activePath()?.file_name === "score-to-pickup.json";
+let openedAt: { token: string; plays: number } | null = null;
+// Count plays from the moment the path opens, not from the next check.
+projectStore.subscribe((state, previous) => {
+  if (state.activePathId === previous.activePathId) return;
+  openedAt = onScoreToPickup()
+    ? { token: tourToken(), plays: tourStore.getState().actions.play ?? 0 }
+    : null;
+});
+const playedScoreToPickup = (() => {
+  let token = "";
+  let played = false;
+  return () => {
+    const current = tourToken();
+    if (current !== token) {
+      token = current;
+      played = false;
+    }
+    if (!onScoreToPickup()) return played;
+    const plays = tourStore.getState().actions.play ?? 0;
+    // Already open when the step began: count from now.
+    if (openedAt?.token !== current) openedAt = { token: current, plays };
+    if (plays > openedAt.plays) played = true;
+    return played;
+  };
+})();
 const activePath = () => {
   const state = projectStore.getState();
   return state.project?.paths.find(
@@ -133,13 +165,7 @@ const webSteps: TourStep[] = [
       {
         label: "Played it",
         showMe: ["transport-play"],
-        check: () =>
-          feedback(
-            activePath()?.file_name === "score-to-pickup.json" &&
-              hasAction("play"),
-            "",
-            "",
-          ),
+        check: () => feedback(playedScoreToPickup(), "", ""),
       },
     ],
   },

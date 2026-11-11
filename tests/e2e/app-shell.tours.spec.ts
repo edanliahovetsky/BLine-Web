@@ -2013,6 +2013,46 @@ test("organizes an auto and test project into a new Path Group @webkit-canvas", 
   await finish(page);
 });
 
+test("Linked Elements says which path to open after the wrong one was clicked", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await gotoSampleEditor(page);
+  await openLesson(page, "Linked Elements");
+  await heading(page, "See where the paths meet");
+  // The path, not the group, is the easy mistake here.
+  await page
+    .getByRole("complementary", { name: "Project Navigator", exact: true })
+    .getByText("Score to Pickup", { exact: true })
+    .first()
+    .click();
+  await previewGroup(page, "Score and Pickup");
+  await advance(page);
+  await heading(page, "Create a linked waypoint");
+  await expect(page.getByTestId("tour-card")).toContainText(
+    "This is Score to Pickup. Open Start to Score from the path dropdown",
+  );
+  await selectToolbarOption(page, "Toolbar path", "Start to Score");
+  await expect(page.getByTestId("tour-card")).not.toContainText(
+    "This is Score to Pickup.",
+  );
+});
+
+test("Escape closes a lesson dropdown without offering to leave", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await gotoSampleEditor(page);
+  await openLesson(page, "Field");
+  await page.locator('[data-tour="settings-nav-field"]').click();
+  await advance(page);
+  await page.getByLabel("Field Image", { exact: true }).click();
+  await expect(page.getByRole("option").first()).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("option")).toHaveCount(0);
+  await expect(page.getByText("Leave this lesson?")).toHaveCount(0);
+});
+
 test("keeps a checklist card's Show me and buttons on screen in a half-width window", async ({
   page,
 }) => {
