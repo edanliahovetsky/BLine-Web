@@ -985,7 +985,7 @@ export const eventTriggersTour: TourDefinition = {
     {
       title: "Slide an event trigger",
       task: "Slide `startIntake` along the path",
-      body: "Event Pos says where it sits between two points: 0 at the first, 1 at the next.",
+      body: "An event trigger tells your robot code when to act. Event Pos: 0 at one point, 1 at the next.",
       target: "element-properties",
       visible: ["path-canvas", "simulation-transport"],
       interact: elementExploration,
@@ -1007,7 +1007,7 @@ export const eventTriggersTour: TourDefinition = {
     {
       title: "Watch the event fire",
       task: "Play the path to End",
-      body: "When the robot crosses the event, BLine sends its key to your robot code.",
+      body: "When the robot crosses the event, it flashes purple: BLine sends its key to your robot code.",
       target: "transport-play",
       visible: ["path-canvas"],
       interact: playback,

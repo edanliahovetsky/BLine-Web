@@ -34,6 +34,11 @@ const activePath = () => {
 
 const shown = (selector: string) =>
   typeof document !== "undefined" && !!document.querySelector(selector);
+const findButton = (label: string) =>
+  typeof document !== "undefined" &&
+  [...document.querySelectorAll("button")].some(
+    (button) => button.textContent?.trim() === label,
+  );
 /** Show me's first stop: open File, skipped once File or what it leads to is open. */
 const openFile = (...alsoOpen: string[]) => ({
   target: "export-menu-entry",
@@ -46,8 +51,8 @@ const openFile = (...alsoOpen: string[]) => ({
 const webSteps: TourStep[] = [
   {
     title: "Export an autos folder",
-    task: "Export the practice autos to a spare folder",
-    body: "Pick any spare folder, not your robot project. Some browsers download autos.zip instead; keep it.",
+    task: "Use Export to Robot with a spare folder",
+    body: "Pick a spare folder, not your robot project. Some browsers download autos.zip instead; keep it.",
     why: "Outside lessons, Export to Robot saves into your robot project’s src/main/deploy/autos and remembers that folder. This practice export never uses or replaces it.",
     target: "export-menu-entry",
     visible: ["path-canvas", "robot-export-dialog"],
@@ -58,7 +63,13 @@ const webSteps: TourStep[] = [
         target: "export-to-robot",
         done: () => shown('[data-tour="robot-export-dialog"]'),
       },
-      "text:Choose folder…",
+      // Browsers that can't save into folders offer a download instead.
+      {
+        target: () =>
+          findButton("Download autos.zip")
+            ? "text:Download autos.zip"
+            : "text:Choose folder…",
+      },
     ],
     prepare: { navigator: "closed", inspector: "closed", simulation: "start" },
     check: () => feedback(hasAction("exportFolder"), "", "Autos exported."),
