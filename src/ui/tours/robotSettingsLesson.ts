@@ -457,8 +457,9 @@ export const fieldSettingsTour: TourDefinition = {
       target: "settings-field-image",
       settingsSection: "field",
       showMe: [{ target: "settings-field-select" }],
+      // The annotated image is the same field, so either one counts.
       check: configTask(
-        (c) => c.gui.field.selected_field_id === "frc2025-reefscape",
+        (c) => c.gui.field.selected_field_id.startsWith("frc2025-reefscape"),
         "Only the background changes; your path stays where it was.",
       ),
     }),
