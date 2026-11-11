@@ -1812,6 +1812,7 @@ export function PathStage({
         activeTool,
         pointer,
         viewport,
+        tourStep?.insertAnchorAt,
       );
       setPlacementPreview({ point: pointer, placement });
       if (placement) onPlaceElement?.(placement);
@@ -1952,6 +1953,7 @@ export function PathStage({
                 activeTool,
                 pointer,
                 viewport,
+                tourStep?.insertAnchorAt,
               ),
             }
           : null,
@@ -2795,6 +2797,8 @@ function placementForPointer(
   tool: "waypoint" | "translation" | "rotation" | "event",
   pointer: StagePoint,
   viewport: FieldViewport,
+  /** A lesson step's fixed insertion point for new anchors. */
+  anchorInsertion?: (path: PathModel) => number | null,
 ): CanvasElementPlacement | null {
   const position = clampModelPoint(
     stageToModelPoint(pointer, viewport),
@@ -2803,7 +2807,11 @@ function placementForPointer(
   const elements = path.path_elements;
 
   if (tool === "waypoint" || tool === "translation") {
-    const selectedIndex = selectionStore.getState().selectedElementIndex;
+    const fixed = anchorInsertion?.(path);
+    const selectedIndex =
+      fixed !== undefined && fixed !== null
+        ? fixed - 1
+        : selectionStore.getState().selectedElementIndex;
     return {
       type: tool,
       position,

@@ -227,8 +227,10 @@ const constraintsAfterElements = observedTourCondition(
     elementsOpened() &&
     shown('[data-tour="inspector-constraints"][aria-selected="true"]'),
 );
-const headingChanged = (path: PathModel) =>
+/** A waypoint's rotation changed this step; only `only`'s, when given. */
+const headingChanged = (path: PathModel, only?: number) =>
   path.path_elements.some((element, index) => {
+    if (only !== undefined && index !== only) return false;
     const before = baselinePath?.path_elements[index];
     return (
       isWaypoint(element) &&
@@ -262,6 +264,24 @@ const extraPoint = (() => {
 })();
 const extraPointAdded = () => extraPoint().added;
 const extraPointRemoved = () => extraPoint().removed;
+const lastWaypoint = (path: PathModel) =>
+  path.path_elements.reduce(
+    (last, element, index) => (isWaypoint(element) ? index : last),
+    -1,
+  );
+/** New points go just before End, whatever is selected. */
+const beforeEnd = (path: PathModel) => {
+  const end = lastAnchor(path);
+  return end > 0 ? end : null;
+};
+/** A translation target placed or dragged after the End waypoint. */
+const afterEndHint = (path: PathModel) => {
+  const target = path.path_elements.findIndex(isTranslationTarget);
+  const end = lastWaypoint(path);
+  return target > end && end >= 0
+    ? "That point is after your End waypoint, so the robot drives through the obstacle first. Press ⌘Z or Ctrl+Z, then place it again."
+    : "";
+};
 /** A near miss for building steps: Start or End was deleted along the way. */
 const lostWaypointHint = () =>
   (currentPath()?.path_elements.filter(isWaypoint).length ?? 2) < 2
@@ -488,7 +508,16 @@ export const fundamentalsTour: TourDefinition = {
             ...showProperties(endpoint),
             { target: "label:Rotation (deg)", echo: "lesson-element" },
           ],
-          check: outcome((path) => feedback(headingChanged(path), "", "")),
+          check: outcome((path) => {
+            const end = lastWaypoint(path);
+            return feedback(
+              headingChanged(path, end),
+              headingChanged(path)
+                ? "That turned Start. Select End and change its rotation."
+                : "",
+              "",
+            );
+          }),
         },
         played,
       ],
@@ -503,6 +532,7 @@ export const fundamentalsTour: TourDefinition = {
       interact: [...elementExploration, "tool-translation"],
       keys: ["Delete", "⌘Z", "Ctrl+Z"],
       prepare: { ...properties(0), simulation: "start" },
+      insertAnchorAt: beforeEnd,
       segment: (path) => [0, lastAnchor(path)],
       element: (path) =>
         indexOrNull(path.path_elements.findIndex(isTranslationTarget)),
@@ -536,6 +566,7 @@ export const fundamentalsTour: TourDefinition = {
       interact: [...elementExploration, "tool-translation"],
       markers: fundamentalsMarkers,
       prepare: { ...properties(0), simulation: "start" },
+      insertAnchorAt: beforeEnd,
       segment: (path) => [0, lastAnchor(path)],
       element: (path) =>
         indexOrNull(path.path_elements.findIndex(isTranslationTarget)),
@@ -547,7 +578,10 @@ export const fundamentalsTour: TourDefinition = {
           check: outcome((path) =>
             feedback(
               path.path_elements.some(isTranslationTarget),
-              lostWaypointHint(),
+              lostWaypointHint() ||
+                (path.path_elements.filter(isWaypoint).length > 2
+                  ? "That’s a waypoint. Press ⌘Z or Ctrl+Z, then use the Translation tool (2)."
+                  : ""),
               "",
             ),
           ),
@@ -559,9 +593,10 @@ export const fundamentalsTour: TourDefinition = {
             feedback(
               path.path_elements.some(isTranslationTarget) &&
                 clearance(path, currentConfig(), true),
-              path.path_elements.some(isTranslationTarget)
-                ? "Drag the translation target farther from the obstacle."
-                : "",
+              !path.path_elements.some(isTranslationTarget)
+                ? ""
+                : afterEndHint(path) ||
+                    "Drag the translation target farther from the obstacle.",
               "",
             ),
           ),
@@ -827,6 +862,18 @@ const rotationChanged = (path: PathModel) => {
     Math.abs(target.rotation_radians - before.rotation_radians) > 0.01
   );
 };
+/** A waypoint's Profiled Rotation was switched off this step. */
+const waypointProfileOff = (path: PathModel) =>
+  path.path_elements.some((element, index) => {
+    const before = baselinePath?.path_elements[index];
+    return (
+      isWaypoint(element) &&
+      !!before &&
+      isWaypoint(before) &&
+      before.rotation_target.profiled_rotation &&
+      !element.rotation_target.profiled_rotation
+    );
+  });
 export const rotationTargetsTour: TourDefinition = {
   id: "rotation-targets",
   title: "Rotation targets",
@@ -895,7 +942,15 @@ export const rotationTargetsTour: TourDefinition = {
             ...showProperties((path) => indexOrNull(rotation(path))),
             { target: "label:Rotation (deg)", echo: "lesson-element" },
           ],
-          check: outcome((path) => feedback(rotationChanged(path), "", "")),
+          check: outcome((path) =>
+            feedback(
+              rotationChanged(path),
+              headingChanged(path)
+                ? "That turned a waypoint. Select the green rotation target and change its rotation."
+                : "",
+              "",
+            ),
+          ),
         },
         played,
       ],
@@ -923,7 +978,9 @@ export const rotationTargetsTour: TourDefinition = {
                 (element) =>
                   isRotationTarget(element) && !element.profiled_rotation,
               ),
-              "",
+              waypointProfileOff(path)
+                ? "That was a waypoint’s. Select the green rotation target and turn its Profiled Rotation off."
+                : "",
               "",
             ),
           ),

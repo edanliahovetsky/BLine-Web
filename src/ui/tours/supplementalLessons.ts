@@ -89,6 +89,19 @@ function scoringElements() {
   ];
 }
 
+/** Score to Pickup's End or middle point was linked to Score instead of Start. */
+function wrongScoreLinkHint() {
+  const target = scoreTarget();
+  const elements = pathById(ids.scorePickup)?.path.path_elements ?? [];
+  return target &&
+    elements.some(
+      (element, index) =>
+        index > 0 && getPathElementLinkedTargetId(element) === target.target_id,
+    )
+    ? "That linked another point to Score. Press ⌘Z or Ctrl+Z, select Start, and link it instead."
+    : "";
+}
+
 function linkedScoreUses() {
   const target = scoreTarget();
   return (
@@ -505,7 +518,7 @@ const linkedElementSteps: TourStep[] = [
           },
           "text:Link Selected",
         ],
-        check: () => feedback(linkedScoreUses(), "", ""),
+        check: () => feedback(linkedScoreUses(), wrongScoreLinkHint(), ""),
       },
     ],
   },

@@ -136,6 +136,12 @@ export interface TourStep {
   showMe?: TourShowMe;
   /** Keys worth showing as key caps on the card. */
   keys?: readonly string[];
+  /**
+   * Where Waypoint and Translation placements go during this step, instead
+   * of after the selection. A click on empty canvas clears the selection,
+   * and a new point would then land after End.
+   */
+  insertAnchorAt?(path: PathModel): number | null;
   /** Element indexes bounding the path segment `lesson-segment` outlines. */
   segment?(path: PathModel): readonly [number, number] | null;
   /** The path element `lesson-element` outlines on the canvas. */

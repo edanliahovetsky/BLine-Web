@@ -2013,6 +2013,74 @@ test("organizes an auto and test project into a new Path Group @webkit-canvas", 
   await finish(page);
 });
 
+test("Fundamentals places a new point before End even with nothing selected", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await gotoSampleEditor(page);
+  await openLesson(page, "BLine Fundamentals");
+  await heading(page, "See a complete path");
+  const next = () =>
+    page.evaluate(async () => {
+      const { tourStore }: typeof import("../../src/ui/tours/tourStore") =
+        await import(/* @vite-ignore */ "/src/ui/tours/tourStore.ts" as string);
+      tourStore.getState().next(6);
+    });
+  await next();
+  await heading(page, "Place Start and End");
+  await place(page, "Waypoint", 5, 2);
+  await place(page, "Waypoint", 15, 2.5);
+  await next();
+  await heading(page, "Turn a waypoint");
+  // Turning Start instead of End is a near miss, not the task.
+  await page.getByTestId("path-element-row-0").click();
+  await setNumber(page, "Rotation (deg)", "45");
+  await expect(page.getByTestId("tour-card")).toContainText(
+    "That turned Start. Select End and change its rotation.",
+  );
+  await next();
+  await next();
+  await heading(page, "Route around the obstacle");
+  // An empty-canvas click clears the selection, which used to send the
+  // new point after End.
+  await clickField(page, 10, 8.5);
+  await place(page, "Translation", 10, 7);
+  await expect
+    .poll(async () =>
+      (await practice(page)).path.path_elements.map((element) => element.type),
+    )
+    .toEqual(["waypoint", "translation", "waypoint"]);
+  // A point moved after End is explained instead of "drag it farther".
+  await page.evaluate(async () => {
+    const { projectStore }: typeof import("../../src/state/projectStore") =
+      await import(/* @vite-ignore */ "/src/state/projectStore.ts" as string);
+    const state = projectStore.getState();
+    projectStore.setState({
+      project: {
+        ...state.project!,
+        paths: state.project!.paths.map((path) =>
+          path.path_id === state.activePathId
+            ? {
+                ...path,
+                path: {
+                  ...path.path,
+                  path_elements: [
+                    path.path.path_elements[0],
+                    path.path.path_elements[2],
+                    path.path.path_elements[1],
+                  ],
+                },
+              }
+            : path,
+        ),
+      },
+    });
+  });
+  await expect(page.getByTestId("tour-card")).toContainText(
+    "That point is after your End waypoint",
+  );
+});
+
 test("Fundamentals hides the current-pose ghost and mid-build Path Health", async ({
   page,
 }) => {
