@@ -1149,6 +1149,29 @@ export function PathStage({
         : [];
     });
   }, [activePathGroupId, activePathId, durableProject, showGhostPaths]);
+  // Lessons ask learners to click these faint paths, so the lesson card
+  // keeps clear of them as it does the active path (stage pixels).
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    if (!activeTourId || !overlayPaths.length) {
+      delete container.dataset.ghostAnchors;
+      return;
+    }
+    container.dataset.ghostAnchors = overlayPaths
+      .map(({ path }) =>
+        path.path_elements
+          .flatMap((element, index) => {
+            if (!isAnchorElement(element)) return [];
+            const position = getElementPosition(path.path_elements, index);
+            if (!position) return [];
+            const point = modelToStagePoint(position, viewport);
+            return [`${Math.round(point.x)},${Math.round(point.y)}`];
+          })
+          .join(";"),
+      )
+      .join("|");
+  }, [activeTourId, overlayPaths, viewport]);
   const hoveredOverlayPath =
     overlayPaths.find((overlay) => overlay.pathId === hoveredOverlayPathId) ??
     null;

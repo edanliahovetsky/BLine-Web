@@ -1139,11 +1139,14 @@ function pathBox(canvas: HTMLElement): Box | null {
 }
 
 /** The route through the path's waypoints and targets, in page pixels. */
-function pathRoute(canvas: HTMLElement): { x: number; y: number }[] {
+function pathRoute(
+  canvas: HTMLElement,
+  anchors = canvas.dataset.pathAnchors ?? "",
+): { x: number; y: number }[] {
   const host = (
     canvas.querySelector(".path-stage__canvas") ?? canvas
   ).getBoundingClientRect();
-  return (canvas.dataset.pathAnchors ?? "")
+  return anchors
     .split(";")
     .filter(Boolean)
     .map((pair) => pair.split(",").map(Number))
@@ -1241,6 +1244,11 @@ function quietCardPosition(
     for (let top = minTop; top <= maxTop; top += 48) spots.push({ left, top });
   const route = pathRoute(canvasElement);
   const samples = routeSamples(route);
+  // Faint group paths a step may ask the learner to click.
+  const ghostSamples = (canvasElement.dataset.ghostAnchors ?? "")
+    .split("|")
+    .filter(Boolean)
+    .flatMap((anchors) => routeSamples(pathRoute(canvasElement, anchors)));
   const ends = [route[0], route.at(-1)].filter(Boolean) as {
     x: number;
     y: number;
@@ -1265,7 +1273,9 @@ function quietCardPosition(
       point.y <= card.bottom + margin;
     // Each hidden sample is about 8 px of route; Start and End orient the
     // learner, so hiding either costs as much as a long stretch of route.
-    const hiddenRoute = samples.filter((point) => covers(point)).length;
+    const hiddenRoute =
+      samples.filter((point) => covers(point)).length +
+      ghostSamples.filter((point) => covers(point)).length / 2;
     const hiddenEnds = ends.filter((point) => covers(point, endRadius)).length;
     return (
       (offscreen ? 1e12 : 0) +

@@ -609,7 +609,7 @@ const pathLinkingSteps: TourStep[] = [
   {
     title: "Choose the transition speed",
     task: "Set Min Velocity to 1.5 m/s at End",
-    body: "It keeps the robot moving into the next path.",
+    body: "Keeps the robot moving into the next path.",
     why: "Min Velocity keeps the robot from slowing to a stop near End. The cells under a constraint are the path’s points in order: W1 is Start, T1 the translation target, and W2 End.",
     target: "inspector-panel",
     visible: ["path-canvas"],
@@ -617,7 +617,7 @@ const pathLinkingSteps: TourStep[] = [
     prepare: { inspector: "open", inspectorTab: "constraints" },
     checks: [
       {
-        label: "Added",
+        label: "Min Velocity added",
         showMe: [
           {
             target: "label:Add constraint",
@@ -803,7 +803,7 @@ const definitions: SupplementalTour[] = [
       {
         title: "Change one point",
         task: "Set the middle point’s handoff to Progress",
-        body: "In Constraints, click the middle m cell, then the arrow icon: Progress.",
+        body: "In Constraints, click the second m cell, then the arrow icon: Progress.",
         why: "Auto/Manual sets where the distance comes from; Radius/Progress sets how it is measured. Shift-click cells to change several at once.",
         target: "max-velocity-card",
         element: () => 1,

@@ -2013,6 +2013,54 @@ test("organizes an auto and test project into a new Path Group @webkit-canvas", 
   await finish(page);
 });
 
+test("keeps the lesson card off a faint path the learner must click", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await gotoSampleEditor(page);
+  await openLesson(page, "Path Linking");
+  await heading(page, "Preview both paths");
+  await previewGroup(page, "Pickup and Score");
+  await advance(page);
+  await heading(page, "Inspect the next Start");
+  // Arriving from the previous step, where the card sat beside the Navigator.
+  await page
+    .getByTestId("tour-card")
+    .getByRole("button", { name: "Back", exact: true })
+    .click();
+  await heading(page, "Preview both paths");
+  await advance(page);
+  await heading(page, "Inspect the next Start");
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const canvas = document.querySelector<HTMLElement>(
+          '[data-tour="path-canvas"]',
+        )!;
+        const host = (
+          canvas.querySelector(".path-stage__canvas") ?? canvas
+        ).getBoundingClientRect();
+        const card = document
+          .querySelector('[data-testid="tour-card"]')!
+          .getBoundingClientRect();
+        const points = (canvas.dataset.ghostAnchors ?? "")
+          .split(/[|;]/)
+          .filter(Boolean)
+          .map((pair) => pair.split(",").map(Number))
+          .map(([x, y]) => ({ x: host.left + x, y: host.top + y }));
+        if (!points.length) return -1;
+        return points.filter(
+          ({ x, y }) =>
+            x >= card.left &&
+            x <= card.right &&
+            y >= card.top &&
+            y <= card.bottom,
+        ).length;
+      }),
+    )
+    .toBe(0);
+});
+
 test("links one shared waypoint and propagates position and heading to both paths @webkit-canvas", async ({
   page,
 }) => {

@@ -380,7 +380,7 @@ export function LinkedTargetsDialog({
                   />
                   {selectedTarget.kind === "waypoint" ? (
                     <LinkedTargetNumberField
-                      label="Heading (deg)"
+                      label="Rotation (deg)"
                       value={radiansToDegrees(
                         selectedTarget.rotation_radians ?? 0,
                       )}
@@ -463,7 +463,7 @@ function LinkedTargetNumberField({
         disabled={disabled}
         min={min}
         max={max}
-        step={label === "Heading (deg)" ? 1 : 0.05}
+        step={label === "Rotation (deg)" ? 1 : 0.05}
         precision={3}
         value={value}
         onChange={(nextValue) => {
