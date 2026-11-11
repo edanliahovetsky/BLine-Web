@@ -345,6 +345,8 @@ const managementSteps: TourStep[] = [
     title: "Explore your groups",
     body: "Click a path or group to preview it, and double-click a name to rename it. Your robot code decides the order paths run.",
     visible: ["path-canvas", "simulation-transport"],
+    // The groups and names this step talks about live in the Navigator.
+    prepare: { navigator: "open" },
     interact: [...navigation, "path-breadcrumb", "path-canvas", ...transport],
   },
 ];

@@ -954,7 +954,7 @@ export const rotationTargetsTour: TourDefinition = {
     },
     {
       title: "Give the turn enough time",
-      body: "The ⚠ badge at bottom right flags turns that need more time. Lower the speed limit to 1 m/s and play again.",
+      body: "The yellow ! badge at bottom right flags turns that need more time. Lower the speed limit to 1 m/s and play again.",
       target: "max-velocity-card",
       visible: ["path-canvas", "simulation-transport", "path-health"],
       interact: [
