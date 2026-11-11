@@ -628,7 +628,7 @@ export const pathTuningTour: TourDefinition = {
   markers: fundamentalsMarkers,
   steps: [
     {
-      title: "Approach the translation",
+      title: "Approach the translation target",
       body: "Watch the robot drive toward the bend, a translation target.",
       target: "path-canvas",
       canvasLesson: "handoff-approach",

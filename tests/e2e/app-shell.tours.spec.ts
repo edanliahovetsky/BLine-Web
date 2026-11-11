@@ -630,7 +630,7 @@ test("collapses and moves the card without losing the task", async ({
       await openLesson(page, "Path Tuning");
       const stage = page.getByTestId("path-stage");
       const canvas = page.getByTestId("path-stage-canvas");
-      await heading(page, "Approach the translation");
+      await heading(page, "Approach the translation target");
       await expect(stage).toHaveAttribute(
         "data-lesson-phase",
         "handoff-approach",
@@ -1453,7 +1453,7 @@ test("Show me points at the next action and follows progress", async ({
 
   // A speed limit is found by the stretch it covers, outlined on the canvas.
   await page.goto("/?lesson=path-tuning");
-  await heading(page, "Approach the translation");
+  await heading(page, "Approach the translation target");
   await page.evaluate(async () => {
     const { tourStore }: typeof import("../../src/ui/tours/tourStore") =
       await import(/* @vite-ignore */ "/src/ui/tours/tourStore.ts" as string);

@@ -945,7 +945,8 @@ export function PathStage({
       canvasLesson === "handoff-crossing" && handoff
         ? { x: handoff.x, y: handoff.y }
         : canvasLesson === "handoff-approach" && handoff
-          ? { x: handoff.x - 1.4, y: handoff.y - 0.6 }
+          ? // Keep Start above the play bar while the bend stays in view.
+            { x: handoff.x - 1.4, y: handoff.y - 1.5 }
           : { x: 10, y: 4.5 };
     const from = lessonCameraRef.current ?? { zoom: 1, x: 9, y: 4.5 };
     const to = { ...center, zoom: timing.zoom };

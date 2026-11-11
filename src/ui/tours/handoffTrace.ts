@@ -37,7 +37,7 @@ export function canvasLessonTiming(
   const after = Math.min(duration, time + 0.4);
   switch (phase) {
     case "handoff-approach":
-      return { start: 0, end: before, rate: 0.8, zoom: 1.3 };
+      return { start: 0, end: before, rate: 0.8, zoom: 1.15 };
     case "handoff-crossing":
       return { start: before, end: after, rate: 0.16, zoom: 2.8 };
     case "handoff-departure":
