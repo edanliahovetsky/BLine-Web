@@ -269,6 +269,54 @@ describe("ideal tank preview", () => {
     },
   );
 
+  it.each(["forward", "backward"] as const)(
+    "pivots toward a nearby %s target before driving instead of orbiting it",
+    (direction) => {
+      // Matches BLine-Lib's TankController: forward speed is scaled by
+      // max(0, cos(heading error)), so the robot cannot carry speed through a
+      // turn it cannot make. Unscaled, this start circles the target forever.
+      const travelHeading = direction === "forward" ? 0 : Math.PI;
+      const startHeading = travelHeading + (3 * Math.PI) / 4;
+      const path = createPathModel({
+        tank_drive_direction: direction,
+        preview: {
+          start_pose: {
+            x_meters: 0,
+            y_meters: 0,
+            rotation_radians: startHeading,
+          },
+        },
+        path_elements: [waypoint(1, 0, 0)],
+        constraints: {
+          ...createPathModel().constraints,
+          end_translation_tolerance_meters: 0.03,
+        },
+      });
+      const result = simulatePathWithTrace(path, config, { dt_s: 0.02 });
+      const last = result.trace.at(-1)!;
+      expect(result.completed).toBe(true);
+      expect(result.total_time_s).toBeLessThan(8);
+      expect(Math.hypot(last.x_m - 1, last.y_m)).toBeLessThanOrEqual(0.03);
+      // Until it first faces within 90 degrees of the target, it turns in place.
+      const facing = result.trace.findIndex(
+        (sample) =>
+          Math.abs(
+            shortestAngularDistance(
+              travelHeading + Math.atan2(-sample.y_m, 1 - sample.x_m),
+              sample.theta_rad,
+            ),
+          ) <=
+          Math.PI / 2,
+      );
+      expect(facing).toBeGreaterThan(1);
+      for (const sample of result.trace.slice(0, facing + 1)) {
+        expect(sample.speed_mps).toBe(0);
+        expect([sample.x_m, sample.y_m]).toEqual([0, 0]);
+      }
+      expect(result.trace[facing + 2].speed_mps).toBeGreaterThan(0);
+    },
+  );
+
   it("retains nonzero motion at a rolling endpoint without aligning to its heading", () => {
     const path = createPathModel({
       path_elements: [waypoint(0, 0, 0), waypoint(3, 0, Math.PI)],

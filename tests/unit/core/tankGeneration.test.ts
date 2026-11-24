@@ -154,3 +154,51 @@ it.each(["tank", "swerve"] as const)(
   },
   30000,
 );
+
+it("keeps tank corner limits usable because the preview slows while the heading catches up", () => {
+  // The preview scales forward speed by max(0, cos(heading error)), as BLine-Lib's
+  // TankController does. Generation validates against that preview, so it no
+  // longer has to crush corner limits to stop the robot carrying speed through
+  // turns it cannot make. Before the scaling, this square solved at 16.9 s.
+  const point = (x: number, y: number) =>
+    createTranslationTarget({
+      x_meters: x,
+      y_meters: y,
+      intermediate_handoff_radius_meters: 0.3,
+      handoff_radius_source: "manual",
+    });
+  const path = createPathModel({
+    path_elements: [
+      createWaypoint({
+        translation_target: point(0, 0),
+        rotation_target: createRotationTarget(),
+      }),
+      point(3, 0),
+      point(3, 3),
+      createWaypoint({
+        translation_target: point(0, 3),
+        rotation_target: createRotationTarget(),
+      }),
+    ],
+  });
+  const config = createProjectConfig({
+    gui: { robot: { drive_type: "tank" } },
+    kinematic_constraints: {
+      default_max_velocity_meters_per_sec: 3,
+      default_max_acceleration_meters_per_sec2: 3,
+      default_max_velocity_deg_per_sec: 270,
+      default_max_acceleration_deg_per_sec2: 540,
+    },
+  });
+  const result = solveJointAutoConstraints(path, config);
+  expect(result.status).toBe("valid");
+  expect(result.stats.genericValidationPassed).toBe(true);
+  const persisted = refreshAutoVelocityConstraints(result.path, config, {
+    whenPresentOnly: false,
+  });
+  const simulation = simulatePathWithTrace(persisted, config, { dt_s: 0.02 });
+  expect(simulation.completed).toBe(true);
+  expect(simulation.total_time_s).toBeLessThan(13);
+  for (const cap of result.profile.segmentCaps)
+    expect(cap.value).toBeGreaterThanOrEqual(0.8);
+}, 30000);

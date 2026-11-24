@@ -301,6 +301,10 @@ export function simulateTankPath(
       if (Math.abs(headingError) > headingTolerance)
         omega = sign * Math.max(Math.abs(omega), Math.min(minW, maxW));
     }
+    // Like the library's TankController, a tank can only travel the way it faces:
+    // scale the forward request by the heading alignment, pivoting in place when
+    // more than 90 degrees off instead of carrying speed through the turn.
+    const alignment = Math.max(0, Math.cos(headingError));
     const oldVx = velocity.forward * Math.cos(theta);
     const oldVy = velocity.forward * Math.sin(theta);
     // Position tolerance ends translation immediately; final heading can keep turning.
@@ -310,7 +314,9 @@ export function simulateTankPath(
     velocity = limitTankVelocity(
       previous,
       {
-        forward: follow ? magnitude * (direction === "backward" ? -1 : 1) : 0,
+        forward: follow
+          ? magnitude * alignment * (direction === "backward" ? -1 : 1)
+          : 0,
         omega,
       },
       {
